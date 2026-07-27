@@ -49,28 +49,81 @@ export default function ProfessionalMindMap() {
   });
 
   const initialPage = {
-    id: 'page-1',
-    name: 'Page 1',
+    id: "page-1",
+    name: "Page 1",
     nodes: [
-      { id: 'n1', x: 200, y: 200, text: 'Main Idea' },
-      { id: 'n2', x: 500, y: 340, text: 'Subtopic A' },
-      { id: 'n3', x: 400, y: 260, text: 'Obstacle Box' }
+      {
+        id: "n1",
+        x: 220,
+        y: 120,
+        text: "Topic",
+        strokeWidth: 1,
+      },
+      {
+        id: "n2",
+        x: 300,
+        y: 240,
+        text: "Subtopic B",
+        strokeWidth: 1,
+      },
+      {
+        id: "n3",
+        x: 140,
+        y: 240,
+        text: "Subtopic B",
+        strokeWidth: 1,
+      },
     ],
     edges: [
       {
-        id: 'e1',
-        sourceType: 'node', source: 'n1', portS: 'R',
-        targetType: 'node', target: 'n2', portT: 'L',
-        waypoints: [{ x: 360, y: 220 }, { x: 360, y: 360 }],
-        customized: true
-      }
+        id: "e1785188504018",
+        sourceType: "node",
+        source: "n1",
+        portS: "B",
+        targetType: "node",
+        target: "n3",
+        portT: "T",
+        waypoints: [
+          { x: 280, y: 200 },
+          { x: 200, y: 199.99999999999997 },
+        ],
+        customized: true,
+      },
+      {
+        id: "e1785188517968",
+        sourceType: "node",
+        source: "n2",
+        portS: "T",
+        targetType: "node",
+        target: "n1",
+        portT: "B",
+        waypoints: [
+          { x: 360, y: 200 },
+          { x: 280, y: 200 },
+        ],
+        customized: true,
+        markerStart: "arrow",
+        markerEnd: "none",
+      },
     ],
-    canvasConfig: { backgroundColor: '#ffffff', showGrid: true },
-    canvasSettings: { width: 1920, height: 1080, orientation: 'landscape' },
-    transform: { x: 50, y: 50, scale: 1 },
+    canvasConfig: {
+      backgroundColor: "#ffffff",
+      showGrid: true,
+    },
+    canvasSettings: {
+      width: 1920,
+      height: 1080,
+      orientation: "landscape",
+    },
+    transform: {
+      scale: 0.9585867604030182,
+      x: 301.9436301711017,
+      y: 150.97089073383478,
+    },
     past: [],
     future: [],
   };
+
 
   // --- PAGES STATE ---
   const [pages, setPages] = useState([initialPage]);
