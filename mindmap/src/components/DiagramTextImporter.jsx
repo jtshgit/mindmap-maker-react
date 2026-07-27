@@ -6,8 +6,8 @@ import {
     Loader2,
     X
 } from 'lucide-react';
-
-const API_ENDPOINT = 'http://localhost:8000/generate-dsl';
+const API_BASE_URL = process.env.REACT_APP_API_URL;
+const API_ENDPOINT = API_BASE_URL + '/generate-dsl';
 
 // ─── SYNTAX REGEX & UTILITIES ──────────────────────────────────────────────
 const NODE_RE = /^([A-Za-z0-9_\-]+)\s*\[([^\]]*)\](?:\s*\[([^\]]*)\])?$/;
