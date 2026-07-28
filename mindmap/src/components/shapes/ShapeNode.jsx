@@ -57,7 +57,185 @@ export function renderImageNode(node, nodeW, nodeH, shapeProps) {
     );
 }
 
-// ─── INLINE TEXT EDITOR ─────────────────────────────────────────────────────
+// ─── SELECTION-AWARE TEXT FORMATTING ───────────────────────────────────────
+// Maps the property names used by the toolbar to real CSS style keys.
+const STYLE_PROP_MAP = {
+    fontWeight: 'fontWeight',
+    fontStyle: 'fontStyle',
+    fontFamily: 'fontFamily',
+    fontColor: 'color',
+    textDecoration: 'textDecoration',
+    fontSize: 'fontSize',
+    letterSpacing: 'letterSpacing',
+};
+
+// Toolbar controls that must take real DOM focus to work (number inputs,
+// the color popover's RGB fields) unavoidably blur the contentEditable div,
+// which clears window.getSelection(). To survive that, EditableNodeText
+// continuously mirrors the last non-collapsed in-node selection here while
+// editing, so a format action can still find "what was selected" even after
+// focus has moved to a toolbar control. Keyed by node id; cleared on exit.
+const savedSelections = new Map();
+
+function getActiveSelectionInNode(nodeId) {
+    const div = document.querySelector(`[data-node-text-id="${nodeId}"]`);
+    if (!div) return null;
+
+    // Prefer the live selection — covers Bold/Italic/etc. where mousedown
+    // was prevented and focus never left the div.
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        if (div.contains(range.commonAncestorContainer)) {
+            return { div, range, sel, isLive: true };
+        }
+    }
+
+    // Fall back to the last known selection captured before focus moved to
+    // a control that needed its own focus (font size, color picker, etc).
+    const saved = savedSelections.get(nodeId);
+    if (saved && !saved.collapsed && div.contains(saved.commonAncestorContainer)) {
+        return { div, range: saved, sel: window.getSelection(), isLive: false };
+    }
+
+    return null;
+}
+
+// Call this from toolbar handlers BEFORE falling back to updateNode().
+// Returns true if a partial selection was formatted in place (nothing else
+// to do — the edit will be persisted on the normal blur/save flow).
+// Returns false if there was no usable selection, meaning the caller should
+// fall back to updateNode(id, { [prop]: value }) to style the whole node.
+export function applyTextStyleToSelection(nodeId, updates) {
+    const found = getActiveSelectionInNode(nodeId);
+    if (!found) return false;
+
+    const { range, sel } = found;
+
+    const span = document.createElement('span');
+    const appliedCssProps = [];
+
+    Object.entries(updates).forEach(([prop, value]) => {
+        const cssProp = STYLE_PROP_MAP[prop];
+        if (!cssProp) return;
+        appliedCssProps.push(cssProp);
+        if (cssProp === 'fontSize' || cssProp === 'letterSpacing') {
+            span.style[cssProp] = typeof value === 'number' ? `${value}px` : value;
+        } else {
+            span.style[cssProp] = value;
+        }
+    });
+
+    try {
+        // Works when the selection doesn't straddle element boundaries.
+        range.surroundContents(span);
+    } catch (e) {
+        // Selection spans multiple nodes/elements — extract then wrap.
+        const content = range.extractContents();
+        span.appendChild(content);
+        range.insertNode(span);
+    }
+
+    // Remove inner styling overrides for the updated CSS properties so that
+    // parent wrapper styles aren't obscured by pre-existing inner element styles.
+    const innerChildren = Array.from(span.querySelectorAll('*')).reverse();
+    innerChildren.forEach((child) => {
+        appliedCssProps.forEach((cssProp) => {
+            if (child.style && child.style[cssProp] !== undefined) {
+                child.style[cssProp] = '';
+            }
+        });
+
+        // Remove empty style attribute if no inline styles remain
+        if (child.hasAttribute('style') && !child.getAttribute('style')) {
+            child.removeAttribute('style');
+        }
+
+        // Unwrap redundant <span> elements that no longer have any attributes
+        if (child.tagName.toLowerCase() === 'span' && child.attributes.length === 0) {
+            while (child.firstChild) {
+                child.parentNode.insertBefore(child.firstChild, child);
+            }
+            child.remove();
+        }
+    });
+
+    // Keep the formatted text selected (not collapsed to a cursor) so
+    // stacking formats — select once, click Bold, click Italic — applies
+    // both to the same text, the way Word/Docs behave. Update both the live
+    // selection and the saved-selection cache so this keeps working even if
+    // the next click also has to steal focus (e.g. font size right after).
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    try {
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+    } catch (e) {
+        // Selection may be unavailable if focus is in an unrelated control —
+        // harmless, the saved-selection cache below still gets updated.
+    }
+    savedSelections.set(nodeId, newRange.cloneRange());
+
+    return true;
+}
+
+// Reads the *actual* formatting at the current caret/selection inside a
+// node's text (falling back to the node-level style when not editing, or
+// when the caret sits in plain unstyled text). The toolbar uses this to
+// decide highlight state and the next toggle value — reading node.fontWeight
+// alone goes stale the moment a partial selection was formatted, since that
+// only touches a nested <span>, not the node.
+export function getActiveTextFormat(node, isEditingThisNode) {
+    const fallback = {
+        fontWeight: node.fontWeight || 400,
+        fontStyle: node.fontStyle || 'normal',
+        textDecoration: node.textDecoration || 'none',
+        fontFamily: node.fontFamily || 'Segoe UI',
+        fontSize: node.fontSize || 12,
+        letterSpacing: node.letterSpacing ?? 0,
+        fontColor: node.fontColor || '#000000',
+    };
+
+    if (!isEditingThisNode) return fallback;
+
+    const div = document.querySelector(`[data-node-text-id="${node.id}"]`);
+    if (!div) return fallback;
+
+    const sel = window.getSelection();
+    let refNode = null;
+
+    if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (div.contains(range.commonAncestorContainer)) {
+            refNode = range.commonAncestorContainer;
+        }
+    }
+    if (!refNode) refNode = savedSelections.get(node.id)?.commonAncestorContainer;
+    if (!refNode || !div.contains(refNode)) return fallback;
+
+    const el = refNode.nodeType === 3 ? refNode.parentElement : refNode;
+    if (!el) return fallback;
+
+    const computed = window.getComputedStyle(el);
+    return {
+        fontWeight: parseInt(computed.fontWeight, 10) || fallback.fontWeight,
+        fontStyle: computed.fontStyle || fallback.fontStyle,
+        textDecoration: computed.textDecorationLine !== 'none' ? 'underline' : 'none',
+        fontFamily: (computed.fontFamily || fallback.fontFamily).split(',')[0].replace(/['"]/g, '').trim(),
+        fontSize: parseFloat(computed.fontSize) || fallback.fontSize,
+        letterSpacing: computed.letterSpacing === 'normal' ? 0 : parseFloat(computed.letterSpacing) || 0,
+        fontColor: rgbToHexColor(computed.color) || fallback.fontColor,
+    };
+}
+
+function rgbToHexColor(rgbStr) {
+    const m = rgbStr && rgbStr.match(/\d+(\.\d+)?/g);
+    if (!m || m.length < 3) return null;
+    const [r, g, b] = m.map(Number);
+    return `#${[r, g, b].map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`;
+}
+
+
 export function EditableNodeText({ node, isEditing, onSave, onExit, nodeW, nodeH, flipColorForTheme }) {
     const divRef = useRef(null);
     const editSessionRef = useRef(false);
@@ -93,15 +271,45 @@ export function EditableNodeText({ node, isEditing, onSave, onExit, nodeW, nodeH
 
             if (divRef.current.contains(e.target)) return;
 
-            const sidebar = document.getElementById('sidebar');
-            if (sidebar && sidebar.contains(e.target)) return;
+            // Any element that opts out of "click outside" (the formatting
+            // sidebar, floating color popovers/dropdowns rendered outside
+            // it, etc.) is marked with data-keep-text-editing — walk up
+            // from the click target rather than relying on a single fixed
+            // container id, so it keeps working regardless of DOM nesting.
+            if (e.target.closest && e.target.closest('[data-keep-text-editing]')) return;
 
+            savedSelections.delete(node.id);
             onSave(divRef.current.innerHTML);
         };
 
         document.addEventListener('pointerdown', handleGlobalPointerDown, true);
         return () => document.removeEventListener('pointerdown', handleGlobalPointerDown, true);
-    }, [isEditing, onSave]);
+    }, [isEditing, onSave, node.id]);
+
+    // Continuously mirror the last non-collapsed selection made inside this
+    // node's text while editing, so toolbar controls that must take real
+    // focus (number inputs, color popover) can still apply to the text the
+    // user actually selected instead of falling back to "whole node".
+    useEffect(() => {
+        if (!isEditing) {
+            savedSelections.delete(node.id);
+            return;
+        }
+        const handleSelectionChange = () => {
+            const el = divRef.current;
+            if (!el) return;
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+                const range = sel.getRangeAt(0);
+                if (el.contains(range.commonAncestorContainer)) {
+                    savedSelections.set(node.id, range.cloneRange());
+                }
+            }
+            document.dispatchEvent(new CustomEvent('node-text-selection-changed', { detail: { nodeId: node.id } }));
+        };
+        document.addEventListener('selectionchange', handleSelectionChange);
+        return () => document.removeEventListener('selectionchange', handleSelectionChange);
+    }, [isEditing, node.id]);
 
     const handleKeyDown = (e) => {
         if (e.key === 'Escape') {
@@ -126,7 +334,7 @@ export function EditableNodeText({ node, isEditing, onSave, onExit, nodeW, nodeH
                         fontFamily: node.fontFamily || 'system-ui',
                         fontSize: `${node.fontSize || 13}px`,
                         color: flipColorForTheme(node.fontColor || '#000000'),
-                        fontWeight: node.fontWeight || 600,
+                        fontWeight: node.fontWeight || 400,
                         fontStyle: node.fontStyle || 'normal',
                         textDecoration: node.textDecoration === 'underline' ? 'underline' : 'none',
                         letterSpacing: `${node.letterSpacing || 0}px`,
@@ -140,6 +348,7 @@ export function EditableNodeText({ node, isEditing, onSave, onExit, nodeW, nodeH
                         width: '100%'
                     }}
                     ref={divRef}
+                    data-node-text-id={node.id}
                     contentEditable={isEditing}
                     suppressContentEditableWarning={true}
                     onKeyDown={handleKeyDown}

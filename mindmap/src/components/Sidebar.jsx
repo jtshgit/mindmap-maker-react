@@ -36,6 +36,7 @@ import {
     StretchHorizontal,
     StretchVertical
 } from 'lucide-react';
+import { applyTextStyleToSelection, getActiveTextFormat } from './shapes/ShapeNode';
 
 /* ============================================================================
    Color Utility Helpers (HEX <-> RGB)
@@ -355,6 +356,7 @@ function CustomSelect({ value, options, onChange, className = '' }) {
         <div ref={ref} className={`relative inline-block text-left ${className}`}>
             <button
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setOpen(!open)}
                 className="w-full px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 rounded flex items-center justify-between shadow-2xs hover:border-neutral-400 dark:hover:border-neutral-500 cursor-pointer transition-colors"
             >
@@ -371,6 +373,7 @@ function CustomSelect({ value, options, onChange, className = '' }) {
                             <button
                                 key={optVal}
                                 type="button"
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => {
                                     onChange(optVal);
                                     setOpen(false);
@@ -585,12 +588,14 @@ function MSColorPicker({ value, onChange, label, checked, onCheckChange }) {
             <div className="flex items-center border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 overflow-hidden shadow-2xs">
                 <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setOpen(!open)}
                     className="w-8 h-6 flex items-center justify-center cursor-pointer border-r border-neutral-200 dark:border-neutral-700 transition-opacity hover:opacity-90"
                     style={{ backgroundColor: currentColor }}
                 />
                 <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={handleEyedropper}
                     title="Pick color from screen (Eyedropper)"
                     className="px-1.5 py-1 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
@@ -780,6 +785,20 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
     const activeTab = tabs.includes(tab) ? tab : (isImage ? 'Image' : 'Style');
     const fileInputRef = useRef(null);
     const isLocked = !!node.locked;
+
+    // The active/inactive highlight on Bold/Italic/etc. reflects whatever's
+    // under the caret, which can change without node changing at all (e.g.
+    // moving the cursor across a bold span). Re-render on that signal too.
+    const [, forceRerender] = useState(0);
+    useEffect(() => {
+        const handler = (e) => {
+            if (e.detail?.nodeId === node.id) forceRerender((n) => n + 1);
+        };
+        document.addEventListener('node-text-selection-changed', handler);
+        return () => document.removeEventListener('node-text-selection-changed', handler);
+    }, [node.id]);
+
+    const activeFormat = getActiveTextFormat(node, true);
 
     const handleReplaceFile = (e) => {
         const file = e.target.files && e.target.files[0];
@@ -972,9 +991,12 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
                     <div className="space-y-3">
                         <MSAccordion title="Font Formatting" defaultOpen={true}>
                             <CustomSelect
-                                value={node.fontFamily || 'Segoe UI'}
+                                value={activeFormat.fontFamily}
                                 options={FONTS}
-                                onChange={(val) => updateNode(node.id, { fontFamily: val })}
+                                onChange={(val) => {
+                                    const applied = applyTextStyleToSelection(node.id, { fontFamily: val });
+                                    if (!applied) updateNode(node.id, { fontFamily: val });
+                                }}
                                 className="w-full"
                             />
 
@@ -982,24 +1004,39 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
                                 <div className="flex border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 overflow-hidden shadow-2xs">
                                     <button
                                         type="button"
-                                        onClick={() => updateNode(node.id, { fontWeight: (node.fontWeight || 400) >= 700 ? 400 : 700 })}
-                                        className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer ${(node.fontWeight || 400) >= 700 ? 'bg-neutral-200 dark:bg-neutral-700 font-bold text-blue-600' : ''
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                            const newWeight = activeFormat.fontWeight >= 700 ? 400 : 700;
+                                            const applied = applyTextStyleToSelection(node.id, { fontWeight: newWeight });
+                                            if (!applied) updateNode(node.id, { fontWeight: newWeight });
+                                        }}
+                                        className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer ${activeFormat.fontWeight >= 700 ? 'bg-neutral-200 dark:bg-neutral-700 font-bold text-blue-600' : ''
                                             }`}
                                     >
                                         <Bold className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => updateNode(node.id, { fontStyle: node.fontStyle === 'italic' ? 'normal' : 'italic' })}
-                                        className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer border-l border-neutral-200 dark:border-neutral-700 ${node.fontStyle === 'italic' ? 'bg-neutral-200 dark:bg-neutral-700 text-blue-600' : ''
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                            const newStyle = activeFormat.fontStyle === 'italic' ? 'normal' : 'italic';
+                                            const applied = applyTextStyleToSelection(node.id, { fontStyle: newStyle });
+                                            if (!applied) updateNode(node.id, { fontStyle: newStyle });
+                                        }}
+                                        className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer border-l border-neutral-200 dark:border-neutral-700 ${activeFormat.fontStyle === 'italic' ? 'bg-neutral-200 dark:bg-neutral-700 text-blue-600' : ''
                                             }`}
                                     >
                                         <Italic className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => updateNode(node.id, { textDecoration: node.textDecoration === 'underline' ? 'none' : 'underline' })}
-                                        className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer border-l border-neutral-200 dark:border-neutral-700 ${node.textDecoration === 'underline' ? 'bg-neutral-200 dark:bg-neutral-700 text-blue-600' : ''
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                            const newDecoration = activeFormat.textDecoration === 'underline' ? 'none' : 'underline';
+                                            const applied = applyTextStyleToSelection(node.id, { textDecoration: newDecoration });
+                                            if (!applied) updateNode(node.id, { textDecoration: newDecoration });
+                                        }}
+                                        className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer border-l border-neutral-200 dark:border-neutral-700 ${activeFormat.textDecoration === 'underline' ? 'bg-neutral-200 dark:bg-neutral-700 text-blue-600' : ''
                                             }`}
                                     >
                                         <Underline className="w-3.5 h-3.5" />
@@ -1007,9 +1044,12 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
                                 </div>
 
                                 <MSNumberInput
-                                    value={node.fontSize || 12}
+                                    value={activeFormat.fontSize}
                                     unit="px"
-                                    onChange={(v) => updateNode(node.id, { fontSize: v })}
+                                    onChange={(v) => {
+                                        const applied = applyTextStyleToSelection(node.id, { fontSize: v });
+                                        if (!applied) updateNode(node.id, { fontSize: v });
+                                    }}
                                 />
                             </div>
 
@@ -1026,6 +1066,7 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
                                                 key={o.v}
                                                 type="button"
                                                 title={`Align text ${o.v === 'start' ? 'left' : o.v === 'end' ? 'right' : 'center'}`}
+                                                onMouseDown={(e) => e.preventDefault()}
                                                 onClick={() => updateNode(node.id, { textAlign: o.v })}
                                                 className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer ${(node.textAlign || 'middle') === o.v ? 'bg-neutral-200 dark:bg-neutral-700 text-blue-600' : ''
                                                     }`}
@@ -1048,6 +1089,7 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
                                                 key={o.v}
                                                 type="button"
                                                 title={`Align text to ${o.label}`}
+                                                onMouseDown={(e) => e.preventDefault()}
                                                 onClick={() => updateNode(node.id, { verticalAlign: o.v })}
                                                 className={`p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer ${(node.verticalAlign || 'middle') === o.v ? 'bg-neutral-200 dark:bg-neutral-700 text-blue-600' : ''
                                                     }`}
@@ -1062,20 +1104,26 @@ function NodeStylePanel({ node, updateNode, onOpenCropModal, onAction }) {
                             <div className="flex items-center justify-between py-0.5">
                                 <span className="text-xs text-neutral-600 dark:text-neutral-400">Letter Spacing</span>
                                 <MSNumberInput
-                                    value={node.letterSpacing ?? 0}
+                                    value={activeFormat.letterSpacing}
                                     unit="px"
                                     min={-5}
                                     max={30}
                                     step={0.5}
-                                    onChange={(v) => updateNode(node.id, { letterSpacing: v })}
+                                    onChange={(v) => {
+                                        const applied = applyTextStyleToSelection(node.id, { letterSpacing: v });
+                                        if (!applied) updateNode(node.id, { letterSpacing: v });
+                                    }}
                                 />
                             </div>
 
                             <MSColorPicker
                                 label="Text Color"
                                 checked={true}
-                                value={node.fontColor || '#000000'}
-                                onChange={(v) => updateNode(node.id, { fontColor: v })}
+                                value={activeFormat.fontColor}
+                                onChange={(v) => {
+                                    const applied = applyTextStyleToSelection(node.id, { fontColor: v });
+                                    if (!applied) updateNode(node.id, { fontColor: v });
+                                }}
                             />
                         </MSAccordion>
 
@@ -1397,6 +1445,7 @@ export function CollapsiblePanel({
 }) {
     return (
         <div
+            data-keep-text-editing="true"
             style={{ width: isOpen ? `${width}px` : '0px' }}
             className="h-full overflow-hidden shrink-0 bg-[#f8f9fa] dark:bg-neutral-900 border-l border-neutral-300 dark:border-neutral-800 transition-[width] duration-200 ease-in-out"
         >

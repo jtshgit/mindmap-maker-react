@@ -69,15 +69,15 @@ export default function ExportDialog({
 
     const getBounds = useCallback(() => {
         const pageW =
-            canvasSettings.orientation === 'landscape'
-                ? canvasSettings.width
-                : canvasSettings.height;
+            canvasSettings?.orientation === 'landscape'
+                ? canvasSettings?.width
+                : canvasSettings?.height;
         const pageH =
-            canvasSettings.orientation === 'landscape'
-                ? canvasSettings.height
-                : canvasSettings.width;
+            canvasSettings?.orientation === 'landscape'
+                ? canvasSettings?.height
+                : canvasSettings?.width;
 
-        let bounds = { x: 0, y: 0, width: pageW, height: pageH };
+        let bounds = { x: 0, y: 0, width: pageW || 800, height: pageH || 600 };
 
         if (size === 'Diagram') {
             let minX = Infinity,
@@ -85,14 +85,14 @@ export default function ExportDialog({
                 maxX = -Infinity,
                 maxY = -Infinity;
 
-            nodes.forEach((n) => {
+            nodes?.forEach((n) => {
                 minX = Math.min(minX, n.x);
                 minY = Math.min(minY, n.y);
                 maxX = Math.max(maxX, n.x + (n.width || 120));
                 maxY = Math.max(maxY, n.y + (n.height || 40));
             });
 
-            edges.forEach((e) => {
+            edges?.forEach((e) => {
                 e.waypoints?.forEach((wp) => {
                     minX = Math.min(minX, wp.x);
                     minY = Math.min(minY, wp.y);
@@ -131,7 +131,7 @@ export default function ExportDialog({
         (finalWidth, finalHeight, zoomFactor, bounds) => {
             const effectiveBg = exportDark
                 ? '#000000'
-                : canvasConfig.backgroundColor || '#ffffff';
+                : canvasConfig?.backgroundColor || '#ffffff';
 
             const container = document.createElement('div');
             container.style.position = 'fixed';
@@ -144,7 +144,7 @@ export default function ExportDialog({
             document.body.appendChild(container);
 
             const svgClone = svgRef.current.cloneNode(true);
-            svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            svgClone.setAttribute('xmlns', 'http://www.w3.org/1999/svg');
 
             svgClone.querySelectorAll('foreignObject').forEach((fo) => {
                 Array.from(fo.children).forEach((child) => {
@@ -338,71 +338,116 @@ export default function ExportDialog({
 
     const previewBgStyle = transparent
         ? {
-            backgroundImage:
-                'linear-gradient(45deg, #1e1e1e 25%, transparent 25%), linear-gradient(-45deg, #1e1e1e 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1e1e1e 75%), linear-gradient(-45deg, transparent 75%, #1e1e1e 75%)',
+            backgroundImage: isAppDark
+                ? 'linear-gradient(45deg, #282828 25%, transparent 25%), linear-gradient(-45deg, #282828 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #282828 75%), linear-gradient(-45deg, transparent 75%, #282828 75%)'
+                : 'linear-gradient(45deg, #E1DFDD 25%, transparent 25%), linear-gradient(-45deg, #E1DFDD 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #E1DFDD 75%), linear-gradient(-45deg, transparent 75%, #E1DFDD 75%)',
             backgroundSize: '16px 16px',
             backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
-            backgroundColor: '#121212'
+            backgroundColor: isAppDark ? '#1B1A19' : '#F3F2F1'
         }
         : {
             backgroundColor: exportDark
                 ? '#000000'
-                : canvasConfig.backgroundColor || '#ffffff'
+                : canvasConfig?.backgroundColor || '#ffffff'
         };
+
+    // Microsoft Fluent / Clean & Simple design tokens
+    const fluentStyles = {
+        container: isAppDark
+            ? 'bg-[#201F1E] border-[#3B3A39] text-[#F3F2F1]'
+            : 'bg-white border-[#E1DFDD] text-[#252423]',
+        header: isAppDark
+            ? 'border-[#3B3A39] bg-[#292827]'
+            : 'border-[#E1DFDD] bg-[#FAF9F8]',
+        title: isAppDark ? 'text-white' : 'text-[#252423]',
+        subtitle: isAppDark ? 'text-[#A19F9D]' : 'text-[#605E5C]',
+        closeBtn: isAppDark
+            ? 'text-[#A19F9D] hover:text-white hover:bg-[#323130]'
+            : 'text-[#605E5C] hover:text-[#252423] hover:bg-[#EDEBE9]',
+        previewContainer: isAppDark
+            ? 'bg-[#1B1A19] border-[#3B3A39]'
+            : 'bg-[#FAF9F8] border-[#E1DFDD]',
+        previewBorder: isAppDark ? 'border-[#323130]' : 'border-[#E1DFDD]',
+        previewLoaderBg: isAppDark ? 'bg-[#201F1E]/80 text-[#F3F2F1]' : 'bg-white/80 text-[#252423]',
+        sidebar: isAppDark ? 'bg-[#201F1E]' : 'bg-white',
+        sectionHeader: isAppDark ? 'text-[#A19F9D]' : 'text-[#605E5C]',
+        label: isAppDark ? 'text-[#F3F2F1]' : 'text-[#323130]',
+        input: isAppDark
+            ? 'bg-[#292827] border-[#3B3A39] text-white focus:border-[#0078D4] focus:ring-[#0078D4]'
+            : 'bg-white border-[#8A8886] text-[#252423] focus:border-[#0078D4] focus:ring-[#0078D4]',
+        toggleActive: isAppDark
+            ? 'bg-[#0078D4] text-white border-[#0078D4]'
+            : 'bg-[#0078D4] text-white border-[#0078D4]',
+        toggleInactive: isAppDark
+            ? 'bg-[#292827] text-[#A19F9D] border-[#3B3A39] hover:bg-[#323130]'
+            : 'bg-[#F3F2F1] text-[#605E5C] border-[#E1DFDD] hover:bg-[#EDEBE9]',
+        divider: isAppDark ? 'border-[#3B3A39]' : 'border-[#E1DFDD]',
+        accordionBtn: isAppDark
+            ? 'text-[#A19F9D] hover:text-white'
+            : 'text-[#605E5C] hover:text-[#252423]',
+        footer: isAppDark
+            ? 'border-[#3B3A39] bg-[#292827]'
+            : 'border-[#E1DFDD] bg-[#FAF9F8]',
+        secondaryBtn: isAppDark
+            ? 'bg-[#292827] border-[#3B3A39] text-[#F3F2F1] hover:bg-[#323130]'
+            : 'bg-white border-[#8A8886] text-[#252423] hover:bg-[#F3F2F1]',
+        primaryBtn: 'bg-[#0078D4] hover:bg-[#106EBE] active:bg-[#005A9E] text-white'
+    };
 
     return (
         <div
-            className="fixed inset-0 z-[10000] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-150"
             onPointerDown={onClose}
         >
             <div
-                className="bg-neutral-900 border border-neutral-800 text-neutral-200 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                className={`border rounded-md shadow-xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] transition-colors ${fluentStyles.container}`}
                 onPointerDown={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-neutral-800 flex justify-between items-center bg-neutral-900/80">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                <div className={`px-5 py-3 border-b flex justify-between items-center ${fluentStyles.header}`}>
+                    <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded bg-[#0078D4]/10 flex items-center justify-center text-[#0078D4]">
                             <Download className="w-4 h-4" />
                         </div>
                         <div>
-                            <h2 className="text-sm font-semibold text-white tracking-wide">
+                            <h2 className={`text-sm font-semibold leading-tight ${fluentStyles.title}`}>
                                 Export Diagram
                             </h2>
-                            <p className="text-[11px] text-neutral-400 uppercase tracking-wider font-mono">
-                                Format: {format.toUpperCase()}
+                            <p className={`text-[11px] font-mono leading-tight uppercase ${fluentStyles.subtitle}`}>
+                                Format: {format}
                             </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+                        className={`p-1 rounded transition-colors ${fluentStyles.closeBtn}`}
+                        aria-label="Close"
                     >
                         <X className="w-4 h-4" />
                     </button>
                 </div>
 
-                {/* Main Landscape Body */}
+                {/* Main Body */}
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden">
-                    {/* Left Side: Live Preview Panel */}
-                    <div className="md:col-span-7 bg-neutral-950 p-6 flex flex-col justify-between border-b md:border-b-0 md:border-r border-neutral-800 relative min-h-[280px]">
-                        <div className="flex items-center justify-between text-xs text-neutral-400 mb-3">
+                    {/* Left: Preview Panel */}
+                    <div className={`md:col-span-7 p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r min-h-[280px] ${fluentStyles.previewContainer}`}>
+                        <div className="flex items-center justify-between text-xs text-[#605E5C] dark:text-[#A19F9D] mb-2.5">
                             <span className="flex items-center gap-1.5 font-medium">
-                                <Eye className="w-3.5 h-3.5 text-neutral-500" /> Preview
+                                <Eye className="w-3.5 h-3.5 text-[#0078D4]" /> Preview
                             </span>
-                            <span className="text-[11px] text-neutral-500 font-mono">
+                            <span className="text-[11px] font-mono">
                                 {exportWidth} × {exportHeight} px
                             </span>
                         </div>
 
                         {/* Preview Display Container */}
                         <div
-                            className="flex-1 rounded-xl border border-neutral-800/80 overflow-hidden flex items-center justify-center relative p-4 transition-colors min-h-[200px]"
+                            className={`flex-1 rounded border overflow-hidden flex items-center justify-center relative p-4 transition-colors min-h-[200px] ${fluentStyles.previewBorder}`}
                             style={previewBgStyle}
                         >
                             {isPreviewLoading && (
-                                <div className="absolute inset-0 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center gap-2 text-xs text-neutral-300 z-10">
-                                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                                <div className={`absolute inset-0 flex items-center justify-center gap-2 text-xs z-10 ${fluentStyles.previewLoaderBg}`}>
+                                    <Loader2 className="w-4 h-4 animate-spin text-[#0078D4]" />
                                     Updating preview...
                                 </div>
                             )}
@@ -411,39 +456,39 @@ export default function ExportDialog({
                                 <img
                                     src={previewSrc}
                                     alt="Export preview"
-                                    className="max-w-full max-h-[280px] object-contain drop-shadow-md transition-all"
+                                    className="max-w-full max-h-[270px] object-contain transition-all"
                                 />
                             ) : (
-                                <span className="text-xs text-neutral-500 flex items-center gap-2">
+                                <span className="text-xs text-[#8A8886] flex items-center gap-2">
                                     <Loader2 className="w-4 h-4 animate-spin" /> Generating preview...
                                 </span>
                             )}
                         </div>
 
-                        <div className="mt-3 flex items-center justify-between text-[11px] text-neutral-500">
+                        <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#605E5C] dark:text-[#A19F9D]">
                             <span>WYSIWYG Live Render</span>
                             <span>Zoom: {zoom}</span>
                         </div>
                     </div>
 
-                    {/* Right Side: Options & Settings Panel */}
-                    <div className="md:col-span-5 p-6 overflow-y-auto flex flex-col justify-between gap-6 bg-neutral-900/50">
+                    {/* Right: Options & Controls Panel */}
+                    <div className={`md:col-span-5 p-5 overflow-y-auto flex flex-col justify-between gap-5 ${fluentStyles.sidebar}`}>
                         <div className="space-y-4">
-                            {/* Option Group 1: Output Config */}
+                            {/* General Options */}
                             <div className="space-y-3">
-                                <h3 className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                                <h3 className={`text-[11px] font-semibold uppercase tracking-wider ${fluentStyles.sectionHeader}`}>
                                     General Settings
                                 </h3>
 
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1">
-                                        <label className="text-xs font-medium text-neutral-300">
-                                            Export Scope
+                                        <label className={`text-xs font-medium block ${fluentStyles.label}`}>
+                                            Scope
                                         </label>
                                         <select
                                             value={size}
                                             onChange={(e) => setSize(e.target.value)}
-                                            className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            className={`w-full text-xs rounded px-2.5 py-1.5 outline-none border focus:ring-1 transition-all ${fluentStyles.input}`}
                                         >
                                             <option value="Diagram">Diagram Bounds</option>
                                             <option value="Page">Full Canvas Page</option>
@@ -451,13 +496,13 @@ export default function ExportDialog({
                                     </div>
 
                                     <div className="space-y-1">
-                                        <label className="text-xs font-medium text-neutral-300">
-                                            Scale Zoom
+                                        <label className={`text-xs font-medium block ${fluentStyles.label}`}>
+                                            Scale
                                         </label>
                                         <select
                                             value={zoom}
                                             onChange={(e) => setZoom(e.target.value)}
-                                            className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            className={`w-full text-xs rounded px-2.5 py-1.5 outline-none border focus:ring-1 transition-all ${fluentStyles.input}`}
                                         >
                                             <option value="50%">50%</option>
                                             <option value="100%">100%</option>
@@ -467,66 +512,60 @@ export default function ExportDialog({
                                     </div>
                                 </div>
 
-                                {isAppDark && (
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-medium text-neutral-300">
-                                            Theme Appearance
-                                        </label>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setExportDark(true)}
-                                                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${exportDark
-                                                        ? 'bg-neutral-800 text-white border-blue-500/50 shadow-sm'
-                                                        : 'bg-neutral-900/50 text-neutral-400 border-neutral-800 hover:text-neutral-200'
-                                                    }`}
-                                            >
-                                                <Moon className="w-3.5 h-3.5 text-blue-400" /> Dark
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setExportDark(false)}
-                                                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${!exportDark
-                                                        ? 'bg-neutral-800 text-white border-blue-500/50 shadow-sm'
-                                                        : 'bg-neutral-900/50 text-neutral-400 border-neutral-800 hover:text-neutral-200'
-                                                    }`}
-                                            >
-                                                <Sun className="w-3.5 h-3.5 text-amber-400" /> Light
-                                            </button>
-                                        </div>
+                                <div className="space-y-1">
+                                    <label className={`text-xs font-medium block ${fluentStyles.label}`}>
+                                        Appearance
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setExportDark(true)}
+                                            className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-all ${exportDark ? fluentStyles.toggleActive : fluentStyles.toggleInactive
+                                                }`}
+                                        >
+                                            <Moon className="w-3.5 h-3.5" /> Dark
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setExportDark(false)}
+                                            className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-all ${!exportDark ? fluentStyles.toggleActive : fluentStyles.toggleInactive
+                                                }`}
+                                        >
+                                            <Sun className="w-3.5 h-3.5" /> Light
+                                        </button>
                                     </div>
-                                )}
+                                </div>
                             </div>
 
-                            {/* Option Group 2: Toggles */}
-                            <div className="space-y-2 pt-2 border-t border-neutral-800/80">
-                                <label className="flex items-center gap-2.5 text-xs text-neutral-300 cursor-pointer select-none py-1">
+                            {/* Checkboxes */}
+                            <div className={`space-y-2 pt-3 border-t ${fluentStyles.divider}`}>
+                                <label className={`flex items-center gap-2.5 text-xs cursor-pointer select-none ${fluentStyles.label}`}>
                                     <input
                                         type="checkbox"
                                         checked={transparent}
                                         onChange={(e) => setTransparent(e.target.checked)}
-                                        className="rounded bg-neutral-800 border-neutral-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
+                                        className="rounded border-[#8A8886] text-[#0078D4] focus:ring-[#0078D4]"
                                     />
                                     Transparent Background
                                 </label>
 
-                                <label className="flex items-center gap-2.5 text-xs text-neutral-300 cursor-pointer select-none py-1">
+                                <label className={`flex items-center gap-2.5 text-xs cursor-pointer select-none ${fluentStyles.label}`}>
                                     <input
                                         type="checkbox"
                                         checked={includeCopy}
                                         onChange={(e) => setIncludeCopy(e.target.checked)}
-                                        className="rounded bg-neutral-800 border-neutral-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
+                                        className="rounded border-[#8A8886] text-[#0078D4] focus:ring-[#0078D4]"
                                     />
                                     Embed editable diagram copy
                                 </label>
                             </div>
 
-                            {/* Collapsible Advanced Accordion */}
-                            <div className="pt-2 border-t border-neutral-800/80">
+                            {/* Accordion Advanced Options */}
+                            <div className={`pt-2 border-t ${fluentStyles.divider}`}>
                                 <button
                                     type="button"
                                     onClick={() => setShowAdvanced(!showAdvanced)}
-                                    className="w-full flex items-center justify-between py-1.5 text-xs font-medium text-neutral-400 hover:text-neutral-200 transition-colors"
+                                    className={`w-full flex items-center justify-between py-1 text-xs font-medium transition-colors ${fluentStyles.accordionBtn}`}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         <Settings2 className="w-3.5 h-3.5" /> Advanced Options
@@ -539,35 +578,35 @@ export default function ExportDialog({
                                 </button>
 
                                 {showAdvanced && (
-                                    <div className="mt-3 space-y-3 pl-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                                    <div className="mt-2.5 space-y-2.5 animate-in fade-in duration-100">
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="space-y-1">
-                                                <label className="text-[11px] text-neutral-400">Width (px)</label>
+                                                <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>Width (px)</label>
                                                 <input
                                                     type="number"
                                                     value={exportWidth}
                                                     onChange={(e) => setExportWidth(e.target.value)}
-                                                    className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
                                                 />
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[11px] text-neutral-400">Height (px)</label>
+                                                <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>Height (px)</label>
                                                 <input
                                                     type="number"
                                                     value={exportHeight}
                                                     onChange={(e) => setExportHeight(e.target.value)}
-                                                    className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
                                                 />
                                             </div>
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="space-y-1">
-                                                <label className="text-[11px] text-neutral-400">DPI Density</label>
+                                                <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>DPI Density</label>
                                                 <select
                                                     value={dpi}
                                                     onChange={(e) => setDpi(e.target.value)}
-                                                    className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
                                                 >
                                                     <option value="100dpi">100 DPI</option>
                                                     <option value="200dpi">200 DPI</option>
@@ -575,34 +614,34 @@ export default function ExportDialog({
                                                 </select>
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[11px] text-neutral-400">Border Width</label>
+                                                <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>Border (px)</label>
                                                 <input
                                                     type="number"
                                                     value={borderWidth}
                                                     onChange={(e) => setBorderWidth(e.target.value)}
-                                                    className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
                                                 />
                                             </div>
                                         </div>
 
                                         <div className="flex gap-4 pt-1">
-                                            <label className="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer">
+                                            <label className={`flex items-center gap-1.5 text-xs cursor-pointer ${fluentStyles.label}`}>
                                                 <input
                                                     type="checkbox"
                                                     checked={shadow}
                                                     onChange={(e) => setShadow(e.target.checked)}
-                                                    className="rounded bg-neutral-800 border-neutral-700 text-blue-600 focus:ring-0"
+                                                    className="rounded border-[#8A8886] text-[#0078D4] focus:ring-[#0078D4]"
                                                 />
-                                                Include Shadow
+                                                Shadow
                                             </label>
-                                            <label className="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer">
+                                            <label className={`flex items-center gap-1.5 text-xs cursor-pointer ${fluentStyles.label}`}>
                                                 <input
                                                     type="checkbox"
                                                     checked={grid}
                                                     onChange={(e) => setGrid(e.target.checked)}
-                                                    className="rounded bg-neutral-800 border-neutral-700 text-blue-600 focus:ring-0"
+                                                    className="rounded border-[#8A8886] text-[#0078D4] focus:ring-[#0078D4]"
                                                 />
-                                                Include Grid
+                                                Grid
                                             </label>
                                         </div>
                                     </div>
@@ -613,11 +652,11 @@ export default function ExportDialog({
                 </div>
 
                 {/* Footer Controls */}
-                <div className="px-6 py-4 border-t border-neutral-800 bg-neutral-900/90 flex justify-end gap-3">
+                <div className={`px-5 py-3 border-t flex justify-end gap-2.5 ${fluentStyles.footer}`}>
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-4 py-2 rounded-xl text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 border border-neutral-700/60 transition-all"
+                        className={`px-4 py-1.5 rounded text-xs font-medium border transition-colors ${fluentStyles.secondaryBtn}`}
                     >
                         Cancel
                     </button>
@@ -625,7 +664,7 @@ export default function ExportDialog({
                         type="button"
                         onClick={handleExecuteExport}
                         disabled={isExporting}
-                        className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                        className={`px-4 py-1.5 rounded text-xs font-medium flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${fluentStyles.primaryBtn}`}
                     >
                         {isExporting ? (
                             <>
@@ -635,7 +674,7 @@ export default function ExportDialog({
                         ) : (
                             <>
                                 <FileCheck className="w-3.5 h-3.5" />
-                                Download File
+                                Export
                             </>
                         )}
                     </button>

@@ -563,10 +563,8 @@ export default function AppHeader({
             <div className="flex items-center justify-between px-3 h-10 border-b border-neutral-200 dark:border-[#2b2b2b] text-xs">
                 <div className="flex items-center gap-3" ref={dropdownRef}>
                     <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-gradient-to-br from-[#0078d4] to-[#00b7c3] flex items-center justify-center font-bold text-white shadow-xs">
-                            <Layers className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="font-semibold text-neutral-900 dark:text-white tracking-wide">Visio Studio</span>
+                        <img src="./logo/favicon-32x32.png" alt="flow logo" className="w-5 h-5 object-contain" />
+                        <span className="font-semibold text-neutral-900 dark:text-white tracking-wide">Flow</span>
                     </div>
 
                     <div className="h-4 w-[1px] bg-neutral-300 dark:bg-neutral-700" />

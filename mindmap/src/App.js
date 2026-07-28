@@ -3,6 +3,7 @@ import { useGesture, useDrag } from '@use-gesture/react';
 import AppHeader from './components/AppHeader';
 import domtoimage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
+import { Loader2 } from 'lucide-react';
 import PageTabBar from './components/PageToolbar';
 import ShapeLibrarySidebar from './components/ShapeLibrarySidebar';
 import Sidebar, { CollapsibleSection } from './components/Sidebar';
@@ -24,6 +25,13 @@ const MAX_SCALE = 10.0;
 const panLimitX = 4000;
 const panLimitY = 4000;
 const ZOOM_PRESETS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5, 8, 10];
+
+// Autosave: the whole `pages` array (plus which page was active) is
+// persisted to localStorage under this key, debounced so rapid edits
+// (dragging, typing, resizing) don't hammer storage on every frame.
+const AUTOSAVE_STORAGE_KEY = 'drawmap.autosave.v1';
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+const LAYOUT_STORAGE_KEY = 'drawmap.layout.v1';
 
 
 export default function ProfessionalMindMap() {
@@ -51,61 +59,8 @@ export default function ProfessionalMindMap() {
   const initialPage = {
     id: "page-1",
     name: "Page 1",
-    nodes: [
-      {
-        id: "n1",
-        x: 220,
-        y: 120,
-        text: "Topic",
-        strokeWidth: 1,
-      },
-      {
-        id: "n2",
-        x: 300,
-        y: 240,
-        text: "Subtopic B",
-        strokeWidth: 1,
-      },
-      {
-        id: "n3",
-        x: 140,
-        y: 240,
-        text: "Subtopic B",
-        strokeWidth: 1,
-      },
-    ],
-    edges: [
-      {
-        id: "e1785188504018",
-        sourceType: "node",
-        source: "n1",
-        portS: "B",
-        targetType: "node",
-        target: "n3",
-        portT: "T",
-        waypoints: [
-          { x: 280, y: 200 },
-          { x: 200, y: 199.99999999999997 },
-        ],
-        customized: true,
-      },
-      {
-        id: "e1785188517968",
-        sourceType: "node",
-        source: "n2",
-        portS: "T",
-        targetType: "node",
-        target: "n1",
-        portT: "B",
-        waypoints: [
-          { x: 360, y: 200 },
-          { x: 280, y: 200 },
-        ],
-        customized: true,
-        markerStart: "arrow",
-        markerEnd: "none",
-      },
-    ],
+    nodes: [],
+    edges: [],
     canvasConfig: {
       backgroundColor: "#ffffff",
       showGrid: true,
@@ -130,9 +85,50 @@ export default function ProfessionalMindMap() {
   const [activePageId, setActivePageId] = useState('page-1');
   const pageCounterRef = useRef(1); // for generating unique page names
 
+  // --- AUTOSAVE / RESUME-ON-RELOAD STATE ---
+  // Read once, synchronously, on first render so we know immediately
+  // (before paint) whether there's a saved diagram to offer resuming.
+  const [resumeSnapshot] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.pages) || parsed.pages.length === 0) return null;
+      return parsed;
+    } catch (err) {
+      return null;
+    }
+  });
+  // Only show the modal if there's actually a saved diagram with some
+  // content worth resuming (at least one node/edge on some page).
+  const [showResumeModal, setShowResumeModal] = useState(() => {
+    if (!resumeSnapshot) return false;
+    return resumeSnapshot.pages.some(p => (p.nodes && p.nodes.length > 0) || (p.edges && p.edges.length > 0));
+  });
+  const autosaveTimerRef = useRef(null);
+  // Guards against writing an autosave snapshot before the resume choice
+  // has been made (so we never overwrite the saved diagram with the blank
+  // default page while the modal is still up).
+  const resumeDecidedRef = useRef(!showResumeModal);
+  // Rasterized WYSIWYG preview of the resumable diagram, generated from the
+  // live svgRef (same technique as ExportDialog) once it has rendered the
+  // preloaded snapshot content behind the modal.
+  const [resumePreviewSrc, setResumePreviewSrc] = useState(null);
+  const [resumePreviewLoading, setResumePreviewLoading] = useState(true);
+
+
   // --- 1. GRAPH STATE (live working state for active page) ---
-  const [nodes, setNodes] = useState(initialPage.nodes);
-  const [edges, setEdges] = useState(initialPage.edges);
+  // When a resumable snapshot exists, preload its active page into the live
+  // working state right away (instead of the blank default page). This
+  // means the real SVG canvas renders the saved diagram underneath the
+  // modal, so the preview can be generated the exact same WYSIWYG way
+  // ExportDialog does (domtoimage on the live svgRef) rather than a rough
+  // hand-drawn approximation.
+  const resumePreviewPage = resumeSnapshot
+    ? (resumeSnapshot.pages.find(p => p.id === resumeSnapshot.activePageId) || resumeSnapshot.pages[0])
+    : null;
+  const [nodes, setNodes] = useState(resumePreviewPage ? (resumePreviewPage.nodes || []) : initialPage.nodes);
+  const [edges, setEdges] = useState(resumePreviewPage ? (resumePreviewPage.edges || []) : initialPage.edges);
 
   // --- 2. INTERACTION & UX STATE ---
   const [mode, setMode] = useState('select'); // 'select' | 'pan'
@@ -147,11 +143,33 @@ export default function ProfessionalMindMap() {
   const [drawRoute, setDrawRoute] = useState(null);
   const [libraryDrag, setLibraryDrag] = useState(null);
   const [libraryLineDrag, setLibraryLineDrag] = useState(null);
-  const [transform, setTransform] = useState(initialPage.transform);
+  const [transform, setTransform] = useState(resumePreviewPage ? (resumePreviewPage.transform || initialPage.transform) : initialPage.transform);
   const [isTransforming, setIsTransforming] = useState(false);
-  const [canvasSettings, setCanvasSettings] = useState(initialPage.canvasSettings);
-  const [shapeLibOpen, setShapeLibOpen] = useState(true);
-  const [propsSidebarOpen, setPropsSidebarOpen] = useState(true);
+  const [canvasSettings, setCanvasSettings] = useState(resumePreviewPage ? (resumePreviewPage.canvasSettings || initialPage.canvasSettings) : initialPage.canvasSettings);
+  // Sidebar open/closed layout persists across reloads (independent of
+  // diagram autosave), read synchronously so panels don't flash open then
+  // snap closed (or vice versa) after mount.
+  const [savedLayout] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  });
+  const [shapeLibOpen, setShapeLibOpen] = useState(savedLayout ? !!savedLayout.shapeLibOpen : true);
+  const [propsSidebarOpen, setPropsSidebarOpen] = useState(savedLayout ? !!savedLayout.propsSidebarOpen : true);
+
+  // Persist sidebar open/closed state across reloads. Separate from diagram
+  // autosave (and not debounced — these are infrequent, deliberate toggles,
+  // not continuous edits) so panel layout survives a refresh on its own.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ shapeLibOpen, propsSidebarOpen }));
+    } catch (err) {
+      // Ignore storage failures — layout persistence is a convenience.
+    }
+  }, [shapeLibOpen, propsSidebarOpen]);
 
   const viewportRef = useRef(null);
   const vTrackRef = useRef(null);
@@ -166,7 +184,7 @@ export default function ProfessionalMindMap() {
   const [multiSelectedEdges, setMultiSelectedEdges] = useState([]);
 
   // NEW STYLING STATES
-  const [canvasConfig, setCanvasConfig] = useState(initialPage.canvasConfig);
+  const [canvasConfig, setCanvasConfig] = useState(resumePreviewPage ? (resumePreviewPage.canvasConfig || initialPage.canvasConfig) : initialPage.canvasConfig);
   // App-wide light/dark theme, driven by next-themes (which toggles the
   // `dark` class on <html> per the ThemeProvider in index.js). Dark mode only
   // flips pure-black strokes to white and renders the canvas page black — it
@@ -214,6 +232,198 @@ export default function ProfessionalMindMap() {
   const svgRef = useRef(null);
   const snap = (val) => Math.round(val / GRID) * GRID;
 
+  // Computes a transform (x, y, scale) that fits the current diagram content
+  // (nodes + edge waypoints), or the blank page if there's no content yet,
+  // centered inside the viewport with padding. Shared by the "Fit to Page"
+  // action and the initial-mount view so both behave the same way.
+  const computeFitTransform = useCallback((nodesArg, edgesArg) => {
+    if (!viewportRef.current) return null;
+    const rect = viewportRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+
+    const pgW = canvasSettings.orientation === 'landscape' ? canvasSettings.width : canvasSettings.height;
+    const pgH = canvasSettings.orientation === 'landscape' ? canvasSettings.height : canvasSettings.width;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    (nodesArg || []).forEach((n) => {
+      const w = n.width || BOX_W;
+      const h = n.height || BOX_H;
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + w);
+      maxY = Math.max(maxY, n.y + h);
+    });
+
+    (edgesArg || []).forEach((e) => {
+      (e.waypoints || []).forEach((wp) => {
+        minX = Math.min(minX, wp.x);
+        minY = Math.min(minY, wp.y);
+        maxX = Math.max(maxX, wp.x);
+        maxY = Math.max(maxY, wp.y);
+      });
+    });
+
+    const hasContent = Number.isFinite(minX) && Number.isFinite(maxX);
+
+    // Fall back to the blank page bounds when there's no content, so
+    // "Fit to Page" and the initial view still show the page nicely
+    // centered instead of collapsing to nothing.
+    let boundsMinX = hasContent ? minX : 0;
+    let boundsMinY = hasContent ? minY : 0;
+    let boundsMaxX = hasContent ? maxX : pgW;
+    let boundsMaxY = hasContent ? maxY : pgH;
+
+    // Always include the page rectangle itself so the diagram is fit
+    // relative to the page, not just to whatever nodes happen to exist.
+    boundsMinX = Math.min(boundsMinX, 0);
+    boundsMinY = Math.min(boundsMinY, 0);
+    boundsMaxX = Math.max(boundsMaxX, pgW);
+    boundsMaxY = Math.max(boundsMaxY, pgH);
+
+    const pad = 60;
+    const diagW = Math.max(1, (boundsMaxX - boundsMinX) + pad * 2);
+    const diagH = Math.max(1, (boundsMaxY - boundsMinY) + pad * 2);
+
+    const scale = clamp(Math.min(rect.width / diagW, rect.height / diagH), MIN_SCALE, 1.5);
+
+    const cx = (boundsMinX + boundsMaxX) / 2;
+    const cy = (boundsMinY + boundsMaxY) / 2;
+
+    // Center horizontally; bias vertically toward the upper portion of the
+    // viewport (rather than dead-center) so the diagram sits center-upper.
+    const targetX = rect.width / 2;
+    const targetY = rect.height * 0.4;
+
+    return {
+      x: targetX - cx * scale,
+      y: targetY - cy * scale,
+      scale,
+    };
+  }, [canvasSettings, viewportRef, BOX_W, BOX_H]);
+
+  // Plain (non-viewport-dependent) bounds calculator shared by the fit
+  // logic above and the resume-preview snapshot below.
+  const getDiagramBounds = useCallback((nodesArg, edgesArg) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (nodesArg || []).forEach((n) => {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + (n.width || BOX_W));
+      maxY = Math.max(maxY, n.y + (n.height || BOX_H));
+    });
+    (edgesArg || []).forEach((e) => {
+      (e.waypoints || []).forEach((wp) => {
+        minX = Math.min(minX, wp.x);
+        minY = Math.min(minY, wp.y);
+        maxX = Math.max(maxX, wp.x);
+        maxY = Math.max(maxY, wp.y);
+      });
+    });
+    if (minX === Infinity) { minX = 0; minY = 0; maxX = 800; maxY = 600; }
+    const padding = 40;
+    return {
+      x: minX - padding,
+      y: minY - padding,
+      width: (maxX - minX) + padding * 2,
+      height: (maxY - minY) + padding * 2,
+    };
+  }, [BOX_W, BOX_H]);
+
+  // Generates a real rasterized preview of the resumable diagram, the same
+  // WYSIWYG way ExportDialog does: clone the live svgRef (already rendering
+  // the preloaded snapshot content), scale/translate it to fit the diagram
+  // bounds into a small thumbnail, then rasterize with domtoimage. This
+  // replaces the earlier hand-drawn rect/polyline approximation, which
+  // didn't reflect real shapes, colors, or text.
+  useEffect(() => {
+    if (!showResumeModal || !resumePreviewPage) return;
+    let cancelled = false;
+    setResumePreviewLoading(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        if (!svgRef.current) throw new Error('no svg');
+        const bounds = getDiagramBounds(resumePreviewPage.nodes || [], resumePreviewPage.edges || []);
+        const maxDim = 480;
+        const scale = Math.min(1, maxDim / Math.max(bounds.width, bounds.height, 1));
+        const pw = Math.max(1, Math.round(bounds.width * scale));
+        const ph = Math.max(1, Math.round(bounds.height * scale));
+        const bg = (resumePreviewPage.canvasConfig && resumePreviewPage.canvasConfig.backgroundColor) || '#ffffff';
+
+        const container = document.createElement('div');
+        container.style.position = 'fixed';
+        container.style.left = '0px';
+        container.style.top = '-99999px';
+        container.style.zIndex = '-9999';
+        container.style.width = `${pw}px`;
+        container.style.height = `${ph}px`;
+        container.style.background = bg;
+        document.body.appendChild(container);
+
+        const svgClone = svgRef.current.cloneNode(true);
+        svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svgClone.querySelectorAll('foreignObject').forEach((fo) => {
+          Array.from(fo.children).forEach((child) => {
+            if (!child.hasAttribute('xmlns')) {
+              child.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+            }
+          });
+        });
+
+        const rootG = svgClone.querySelector('g');
+        if (rootG) {
+          rootG.setAttribute('transform', `scale(${scale}) translate(${-bounds.x}, ${-bounds.y})`);
+          const shadowEl = svgClone.querySelector('[data-role="canvas-shadow"]');
+          const bgElInner = svgClone.querySelector('[data-role="canvas-bg"]');
+          const gridEl = svgClone.querySelector('[data-role="canvas-grid"]');
+          if (shadowEl) shadowEl.style.display = 'none';
+          if (bgElInner) bgElInner.style.display = 'none';
+          if (gridEl) gridEl.style.display = 'none';
+        }
+
+        svgClone.style.width = '100%';
+        svgClone.style.height = '100%';
+        svgClone.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
+        container.appendChild(svgClone);
+
+        await new Promise((r) => setTimeout(r, 60));
+        const dataUrl = await domtoimage.toPng(container, { quality: 1, bgcolor: bg, width: pw, height: ph });
+        document.body.removeChild(container);
+
+        if (!cancelled) {
+          setResumePreviewSrc(dataUrl);
+          setResumePreviewLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResumePreviewSrc(null);
+          setResumePreviewLoading(false);
+        }
+      }
+    }, 120);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [showResumeModal, resumePreviewPage, getDiagramBounds, svgRef]);
+
+  // On first mount, fit the initial page/diagram into view (center-upper)
+  // instead of relying on a hardcoded transform. Runs after layout so the
+  // viewport has a real measured size to fit against. Waits for the resume
+  // decision so it fits whichever diagram (saved or fresh) actually loads.
+  const didInitialFitRef = useRef(false);
+  useEffect(() => {
+    if (didInitialFitRef.current) return;
+    if (showResumeModal) return;
+    const raf = requestAnimationFrame(() => {
+      const fit = computeFitTransform(nodes, edges);
+      if (fit) {
+        setTransform(fit);
+        didInitialFitRef.current = true;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [computeFitTransform, nodes, edges, showResumeModal]);
+
   // --- PAGE MANAGEMENT ---
   // Save current working state into the pages array for the current active page
   const saveCurrentPageState = useCallback(() => {
@@ -247,6 +457,84 @@ export default function ProfessionalMindMap() {
     setDragging(null);
     setSnapLines([]);
   }, []);
+
+  // --- AUTOSAVE ---
+  // Debounced write of the full pages array (with the current working page
+  // merged in) to localStorage. Skipped entirely while the resume modal is
+  // still open, so we never clobber the saved diagram with the blank
+  // default page before the user has chosen to resume or start fresh.
+  useEffect(() => {
+    if (!resumeDecidedRef.current) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      try {
+        const currentPageSnapshot = {
+          nodes, edges,
+          canvasConfig, canvasSettings, transform,
+        };
+        const allPages = pages.map(p => p.id === activePageId ? { ...p, ...currentPageSnapshot } : p);
+        const payload = {
+          pages: allPages.map(p => ({
+            id: p.id,
+            name: p.name,
+            nodes: p.nodes,
+            edges: p.edges,
+            canvasConfig: p.canvasConfig,
+            canvasSettings: p.canvasSettings,
+            transform: p.transform,
+          })),
+          activePageId,
+          savedAt: Date.now(),
+        };
+        window.localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify(payload));
+      } catch (err) {
+        // Storage can fail (quota, private-browsing lockouts, etc.) — autosave
+        // is a convenience, so fail silently rather than interrupting editing.
+      }
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+  }, [nodes, edges, canvasConfig, canvasSettings, transform, pages, activePageId]);
+
+  // Resume the autosaved diagram: load it as the working pages/state.
+  const handleResumeAutosave = useCallback(() => {
+    if (!resumeSnapshot || !resumeSnapshot.pages || resumeSnapshot.pages.length === 0) {
+      setShowResumeModal(false);
+      resumeDecidedRef.current = true;
+      return;
+    }
+    const restoredPages = resumeSnapshot.pages.map(p => ({
+      ...makeDefaultPage(p.id, p.name),
+      ...p,
+      past: [],
+      future: [],
+    }));
+    const targetId = resumeSnapshot.activePageId && restoredPages.some(p => p.id === resumeSnapshot.activePageId)
+      ? resumeSnapshot.activePageId
+      : restoredPages[0].id;
+    const targetPage = restoredPages.find(p => p.id === targetId);
+    setPages(restoredPages);
+    setActivePageId(targetId);
+    loadPageState(targetPage);
+    pageCounterRef.current = restoredPages.length;
+    setShowResumeModal(false);
+    resumeDecidedRef.current = true;
+  }, [resumeSnapshot, loadPageState]);
+
+  // Discard the autosaved diagram and start with a fresh blank page. State
+  // was preloaded with the snapshot's content (for the live WYSIWYG
+  // preview), so this must explicitly reset back to a blank page rather
+  // than just closing the modal.
+  const handleStartFresh = useCallback(() => {
+    try { window.localStorage.removeItem(AUTOSAVE_STORAGE_KEY); } catch (err) { }
+    const freshPage = makeDefaultPage('page-1', 'Page 1');
+    setPages([freshPage]);
+    setActivePageId(freshPage.id);
+    loadPageState(freshPage);
+    pageCounterRef.current = 1;
+    setShowResumeModal(false);
+    resumeDecidedRef.current = true;
+  }, [loadPageState]);
+
 
   const handleSwitchPage = useCallback((targetPageId) => {
     if (targetPageId === activePageId) return;
@@ -361,7 +649,8 @@ export default function ProfessionalMindMap() {
       height: defaultH,
       strokeColor: '#000000',
       strokeWidth: 1,
-      text: 'Text'
+      text: 'Text',
+      fontWeight: 400
     };
     performAction(() => {
       setNodes(prev => [...prev, newNode]);
@@ -856,6 +1145,67 @@ export default function ProfessionalMindMap() {
     }
   };
 
+  // Appends one or more freshly-imported pages onto the existing pages
+  // array (current work is preserved), switches to the first imported
+  // page, and gives every imported page a collision-free id/name so it
+  // never overwrites an existing tab.
+  const appendImportedPages = useCallback((importedPages) => {
+    if (!importedPages || importedPages.length === 0) return;
+    // Persist whatever is currently on-screen back into `pages` first, so
+    // in-progress edits on the active page aren't lost when we switch away
+    // from it to show the newly imported page.
+    const currentPageSnapshot = {
+      nodes: JSON.parse(JSON.stringify(nodes)),
+      edges: JSON.parse(JSON.stringify(edges)),
+      canvasConfig: { ...canvasConfig },
+      canvasSettings: { ...canvasSettings },
+      transform: { ...transform },
+      past: JSON.parse(JSON.stringify(past)),
+      future: JSON.parse(JSON.stringify(future)),
+    };
+
+    setPages(prev => {
+      const base = prev.map(p => p.id === activePageId ? { ...p, ...currentPageSnapshot } : p);
+      const existingIds = new Set(base.map(p => p.id));
+      const existingNames = new Set(base.map(p => p.name));
+
+      const freshPages = importedPages.map((p, i) => {
+        let newId = p.id;
+        if (!newId || existingIds.has(newId)) {
+          newId = `page-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`;
+        }
+        existingIds.add(newId);
+
+        let newName = p.name || `Imported Page ${i + 1}`;
+        let dedupedName = newName;
+        let suffix = 2;
+        while (existingNames.has(dedupedName)) {
+          dedupedName = `${newName} (${suffix})`;
+          suffix += 1;
+        }
+        existingNames.add(dedupedName);
+
+        return {
+          ...makeDefaultPage(newId, dedupedName),
+          ...p,
+          id: newId,
+          name: dedupedName,
+          past: [],
+          future: [],
+        };
+      });
+
+      const combined = [...base, ...freshPages];
+      pageCounterRef.current = combined.length;
+
+      // Switch to the first newly-imported page.
+      loadPageState(freshPages[0]);
+      setActivePageId(freshPages[0].id);
+
+      return combined;
+    });
+  }, [nodes, edges, canvasConfig, canvasSettings, transform, past, future, activePageId, loadPageState]);
+
   const handleImport = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -883,11 +1233,7 @@ export default function ProfessionalMindMap() {
           if (pagesNode) {
             const importedPages = JSON.parse(decodeXML(pagesNode.textContent));
             if (importedPages && importedPages.length > 0) {
-              setPages(importedPages);
-              const firstPage = importedPages[0];
-              setActivePageId(firstPage.id);
-              loadPageState(firstPage);
-              pageCounterRef.current = importedPages.length;
+              appendImportedPages(importedPages);
               return;
             }
           }
@@ -900,11 +1246,7 @@ export default function ProfessionalMindMap() {
           const parsed = JSON.parse(content);
           // Multi-page format
           if (parsed.pages && parsed.pages.length > 0) {
-            setPages(parsed.pages);
-            const firstPage = parsed.pages[0];
-            setActivePageId(firstPage.id);
-            loadPageState(firstPage);
-            pageCounterRef.current = parsed.pages.length;
+            appendImportedPages(parsed.pages);
             return;
           }
           parsedNodes = parsed.nodes;
@@ -913,17 +1255,18 @@ export default function ProfessionalMindMap() {
           parsedSettings = parsed.canvasSettings;
         }
 
+        // Single-page (nodes/edges only, no `pages` array) import: treat it
+        // as one new page appended after the existing ones, rather than
+        // overwriting the current page's content.
         if (parsedNodes || parsedEdges || parsedConfig || parsedSettings) {
-          performAction(() => {
-            if (parsedNodes) setNodes(parsedNodes);
-            if (parsedEdges) setEdges(parsedEdges);
-            if (parsedConfig) setCanvasConfig(parsedConfig);
-            if (parsedSettings) setCanvasSettings(parsedSettings);
-            setSelected(null);
-            setMultiSelected([]);
-            setMultiSelectedEdges([]);
-            setTransform({ x: 50, y: 50, scale: 1 });
-          });
+          appendImportedPages([{
+            name: file.name.replace(/\.(json|xml|drawmap)$/i, '') || 'Imported Page',
+            nodes: parsedNodes || [],
+            edges: parsedEdges || [],
+            canvasConfig: parsedConfig || canvasConfig,
+            canvasSettings: parsedSettings || canvasSettings,
+            transform: { x: 50, y: 50, scale: 1 },
+          }]);
         }
       } catch (err) {
         alert("Failed to parse file.");
@@ -1229,9 +1572,11 @@ export default function ProfessionalMindMap() {
           break;
         case 'undo': undo(); break;
         case 'redo': redo(); break;
-        case 'fitPage':
-          setTransform({ x: 50, y: 50, scale: 1 });
+        case 'fitPage': {
+          const fit = computeFitTransform(nodes, edges);
+          if (fit) setTransform(fit);
           break;
+        }
         case 'toggleGrid':
           setCanvasConfig(p => ({ ...p, showGrid: !p.showGrid }));
           break;
@@ -1280,6 +1625,7 @@ export default function ProfessionalMindMap() {
       text: 'Text',
       textPaddingX: 4,
       textPaddingY: 4,
+      fontWeight: 400,
     };
     performAction(() => {
       setNodes(prev => [...prev, newNode]);
@@ -2103,9 +2449,72 @@ export default function ProfessionalMindMap() {
   const sf = 1 / transform.scale;
   const showEditingUI = !isTransforming && transform.scale >= 0.4;
   const activePage = pages.find(p => p.id === activePageId);
-  // --- RENDER ---
+
   return (
     <div className="w-[100vw] h-[100vh] bg-[#f8fafc] dark:bg-[#0f0f10] overflow-hidden relative flex flex-col transition-colors">
+      {showResumeModal && resumeSnapshot && (() => {
+        const previewPage = resumePreviewPage;
+        const pageCount = resumeSnapshot.pages.length;
+        const savedAtLabel = resumeSnapshot.savedAt ? new Date(resumeSnapshot.savedAt).toLocaleString() : null;
+        const previewBg = (previewPage && previewPage.canvasConfig && previewPage.canvasConfig.backgroundColor) || '#ffffff';
+        return (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="w-[420px] max-w-[92vw] rounded-md bg-white dark:bg-[#201F1E] shadow-xl border border-[#E1DFDD] dark:border-[#3B3A39] overflow-hidden text-[#252423] dark:text-[#F3F2F1] transition-colors">
+              {/* Header */}
+              <div className="px-5 pt-4 pb-3">
+                <h2 className="text-sm font-semibold text-[#252423] dark:text-white leading-tight">
+                  Welcome back
+                </h2>
+                <p className="mt-1 text-xs text-[#605E5C] dark:text-[#A19F9D] leading-normal">
+                  We found a diagram saved in this browser{savedAtLabel ? ` from ${savedAtLabel}` : ''}
+                  {pageCount > 1 ? ` (${pageCount} pages)` : ''}. Resume it, or start a new flow.
+                </p>
+              </div>
+
+              {/* Canvas Preview Box */}
+              <div
+                className="mx-5 rounded border border-[#E1DFDD] dark:border-[#3B3A39] overflow-hidden flex items-center justify-center h-[190px] relative bg-[#FAF9F8] dark:bg-[#1B1A19]"
+                style={{ backgroundColor: previewBg || undefined }}
+              >
+                {resumePreviewLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-[#605E5C] dark:text-[#A19F9D] bg-white/80 dark:bg-[#201F1E]/80">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#0078D4]" />
+                    Rendering preview...
+                  </div>
+                )}
+                {!resumePreviewLoading && resumePreviewSrc && (
+                  <img
+                    src={resumePreviewSrc}
+                    alt="Saved diagram preview"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                )}
+                {!resumePreviewLoading && !resumePreviewSrc && (
+                  <span className="text-xs text-[#8A8886] dark:text-[#A19F9D]">Preview unavailable</span>
+                )}
+              </div>
+
+              {/* Footer Controls */}
+              <div className="flex gap-2.5 px-5 py-3 mt-4 bg-[#FAF9F8] dark:bg-[#292827] border-t border-[#E1DFDD] dark:border-[#3B3A39]">
+                <button
+                  type="button"
+                  onClick={handleStartFresh}
+                  className="flex-1 px-3 py-1.5 rounded text-xs font-medium border border-[#8A8886] dark:border-[#3B3A39] bg-white dark:bg-[#201F1E] text-[#252423] dark:text-[#F3F2F1] hover:bg-[#F3F2F1] dark:hover:bg-[#323130] transition-colors"
+                >
+                  Start fresh
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResumeAutosave}
+                  className="flex-1 px-3 py-1.5 rounded text-xs font-medium bg-[#0078D4] hover:bg-[#106EBE] active:bg-[#005A9E] text-white transition-colors"
+                >
+                  Resume diagram
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <AppHeader
         activePage={activePage}
         onRenamePage={handleRenamePage}
