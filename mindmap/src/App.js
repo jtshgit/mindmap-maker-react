@@ -2609,7 +2609,7 @@ export default function ProfessionalMindMap() {
                 <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.scale})`}>
                   {/* Page shadow */}
                   <rect data-role="canvas-shadow" x="4" y="4" width={pageW} height={pageH} rx="1" fill="rgba(0,0,0,0.08)" />
-                  <rect data-role="canvas-bg" x="0" y="0" width={pageW} height={pageH} rx="1" fill={isDarkTheme ? '#000000' : (canvasConfig.backgroundColor || '#ffffff')} stroke="#d1d5db" strokeWidth={1 / transform.scale} />
+                  <rect data-role="canvas-bg" x="0" y="0" width={pageW} height={pageH} rx="1" fill={flipColorForTheme(canvasConfig.backgroundColor || '#ffffff')} stroke="#d1d5db" strokeWidth={1 / transform.scale} />
                   <defs>
                     <pattern id="grid" width={GRID} height={GRID} patternUnits="userSpaceOnUse">
                       <rect width={GRID} height={GRID} fill="none" stroke={isDarkTheme ? '#2e2e2e' : '#e2e8f0'} strokeWidth={1 / transform.scale} />

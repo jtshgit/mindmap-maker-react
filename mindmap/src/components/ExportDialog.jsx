@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import domtoimage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
 import {
@@ -13,6 +13,91 @@ import {
     Moon,
     FileCheck
 } from 'lucide-react';
+
+/* -------------------------------------------------------------------------- */
+/*                            Custom Styled Inputs                            */
+/* -------------------------------------------------------------------------- */
+
+function CustomSelect({ value, options, onChange, className = '' }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        const handleClick = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    const selectedOption = options.find((o) => (typeof o === 'object' ? o.value : o) === value);
+    const displayLabel = selectedOption
+        ? typeof selectedOption === 'object'
+            ? selectedOption.label
+            : selectedOption
+        : value;
+
+    return (
+        <div ref={ref} className={`relative inline-block text-left ${open ? 'z-50' : 'z-10'} ${className}`}>
+            <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setOpen(!open)}
+                className="w-full px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 rounded flex items-center justify-between shadow-2xs hover:border-neutral-400 dark:hover:border-neutral-500 cursor-pointer transition-colors"
+            >
+                <span className="truncate">{displayLabel}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-neutral-400 ml-1 shrink-0" />
+            </button>
+            {open && (
+                <div className="absolute left-0 right-0 mt-1 z-[1000] bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded shadow-xl max-h-48 overflow-y-auto py-1 text-xs">
+                    {options.map((opt) => {
+                        const optVal = typeof opt === 'object' ? opt.value : opt;
+                        const optLabel = typeof opt === 'object' ? opt.label : opt;
+                        const isSelected = optVal === value;
+                        return (
+                            <button
+                                key={optVal}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                    onChange(optVal);
+                                    setOpen(false);
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer flex items-center justify-between ${isSelected
+                                        ? 'font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30'
+                                        : 'text-neutral-700 dark:text-neutral-300'
+                                    }`}
+                            >
+                                <span className="truncate">{optLabel}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function MSNumberInput({ value, onChange, unit = '', min = -500, max = 5000, step = 1, className = '' }) {
+    return (
+        <div className={`flex items-center border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 px-1.5 py-0.5 w-full focus-within:border-blue-500 shadow-2xs ${className}`}>
+            <input
+                type="number"
+                min={min}
+                max={max}
+                step={step}
+                value={value ?? 0}
+                onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+                className="w-full text-xs font-medium text-right pr-1 text-neutral-800 dark:text-neutral-200 bg-transparent focus:outline-none"
+            />
+            {unit && <span className="text-[10px] text-neutral-400 shrink-0 font-semibold uppercase">{unit}</span>}
+        </div>
+    );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            Helper Functions                                */
+/* -------------------------------------------------------------------------- */
 
 const isBlackColor = (c) =>
     c === '#000' ||
@@ -29,6 +114,10 @@ const isWhiteColor = (c) =>
     c === 'white' ||
     c === 'rgb(255, 255, 255)' ||
     c === 'rgba(255, 255, 255, 1)';
+
+/* -------------------------------------------------------------------------- */
+/*                            Export Dialog Component                         */
+/* -------------------------------------------------------------------------- */
 
 export default function ExportDialog({
     isOpen,
@@ -50,12 +139,12 @@ export default function ExportDialog({
     const [zoom, setZoom] = useState('100%');
     const [isExporting, setIsExporting] = useState(false);
 
-    // Advanced Options (Collapsed by default)
+    // Advanced Options
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [exportWidth, setExportWidth] = useState(293);
     const [exportHeight, setExportHeight] = useState(98);
     const [dpi, setDpi] = useState('100dpi');
-    const [borderWidth, setBorderWidth] = useState('0');
+    const [borderWidth, setBorderWidth] = useState(0);
     const [shadow, setShadow] = useState(false);
     const [grid, setGrid] = useState(false);
 
@@ -66,6 +155,12 @@ export default function ExportDialog({
     useEffect(() => {
         if (isOpen) setExportDark(isAppDark);
     }, [isOpen, isAppDark]);
+
+    useEffect(() => {
+        if (format === 'jpeg' || format === 'pdf') {
+            setTransparent(false);
+        }
+    }, [format]);
 
     const getBounds = useCallback(() => {
         const pageW =
@@ -128,19 +223,26 @@ export default function ExportDialog({
     }, [isOpen, getBounds, zoom]);
 
     const buildExportContainer = useCallback(
-        (finalWidth, finalHeight, zoomFactor, bounds) => {
+        (finalWidth, finalHeight, zoomFactor, bounds, borderPx = 0) => {
             const effectiveBg = exportDark
                 ? '#000000'
                 : canvasConfig?.backgroundColor || '#ffffff';
+
+            const outerWidth = finalWidth + borderPx * 2;
+            const outerHeight = finalHeight + borderPx * 2;
 
             const container = document.createElement('div');
             container.style.position = 'fixed';
             container.style.left = '0px';
             container.style.top = '-99999px';
             container.style.zIndex = '-9999';
-            container.style.width = `${finalWidth}px`;
-            container.style.height = `${finalHeight}px`;
+            container.style.boxSizing = 'border-box';
+            container.style.width = `${outerWidth}px`;
+            container.style.height = `${outerHeight}px`;
             container.style.background = transparent ? 'transparent' : effectiveBg;
+            if (borderPx > 0) {
+                container.style.border = `${borderPx}px solid ${exportDark ? '#ffffff' : '#000000'}`;
+            }
             document.body.appendChild(container);
 
             const svgClone = svgRef.current.cloneNode(true);
@@ -199,12 +301,17 @@ export default function ExportDialog({
                 }
             }
 
-            svgClone.style.width = '100%';
-            svgClone.style.height = '100%';
+            svgClone.setAttribute('width', String(finalWidth));
+            svgClone.setAttribute('height', String(finalHeight));
             svgClone.setAttribute('viewBox', `0 0 ${finalWidth} ${finalHeight}`);
+            svgClone.style.position = 'absolute';
+            svgClone.style.left = `${borderPx}px`;
+            svgClone.style.top = `${borderPx}px`;
+            svgClone.style.width = `${finalWidth}px`;
+            svgClone.style.height = `${finalHeight}px`;
             container.appendChild(svgClone);
 
-            return { container, svgClone, effectiveBg };
+            return { container, svgClone, effectiveBg, outerWidth, outerHeight };
         },
         [canvasConfig, transparent, shadow, grid, size, exportDark, isAppDark, svgRef]
     );
@@ -284,18 +391,64 @@ export default function ExportDialog({
             parseInt(exportWidth, 10) || Math.round(bounds.width * zoomFactor);
         const finalHeight =
             parseInt(exportHeight, 10) || Math.round(bounds.height * zoomFactor);
+        const borderPx = Math.max(0, parseInt(borderWidth, 10) || 0);
 
-        const { container, svgClone, effectiveBg } = buildExportContainer(
+        const dpiScale = { '100dpi': 1, '200dpi': 2, '300dpi': 3 }[dpi] || 1;
+        const isRaster = format === 'png' || format === 'jpeg' || format === 'pdf';
+        const renderScale = isRaster ? dpiScale : 1;
+
+        const { container, svgClone, effectiveBg, outerWidth, outerHeight } = buildExportContainer(
             finalWidth,
             finalHeight,
             zoomFactor,
-            bounds
+            bounds,
+            borderPx
         );
 
         await new Promise((r) => setTimeout(r, 200));
 
         try {
             if (format === 'svg') {
+                const svgW = finalWidth + borderPx * 2;
+                const svgH = finalHeight + borderPx * 2;
+                svgClone.setAttribute('width', String(svgW));
+                svgClone.setAttribute('height', String(svgH));
+                svgClone.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+                svgClone.style.position = '';
+                svgClone.style.left = '';
+                svgClone.style.top = '';
+                svgClone.style.width = '';
+                svgClone.style.height = '';
+
+                const contentWrapper = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                contentWrapper.setAttribute('transform', `translate(${borderPx}, ${borderPx})`);
+                while (svgClone.firstChild) {
+                    contentWrapper.appendChild(svgClone.firstChild);
+                }
+
+                if (!transparent) {
+                    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    bgRect.setAttribute('x', '0');
+                    bgRect.setAttribute('y', '0');
+                    bgRect.setAttribute('width', String(svgW));
+                    bgRect.setAttribute('height', String(svgH));
+                    bgRect.setAttribute('fill', effectiveBg);
+                    svgClone.appendChild(bgRect);
+                }
+                svgClone.appendChild(contentWrapper);
+
+                if (borderPx > 0) {
+                    const borderRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    borderRect.setAttribute('x', String(borderPx / 2));
+                    borderRect.setAttribute('y', String(borderPx / 2));
+                    borderRect.setAttribute('width', String(svgW - borderPx));
+                    borderRect.setAttribute('height', String(svgH - borderPx));
+                    borderRect.setAttribute('fill', 'none');
+                    borderRect.setAttribute('stroke', exportDark ? '#ffffff' : '#000000');
+                    borderRect.setAttribute('stroke-width', String(borderPx));
+                    svgClone.appendChild(borderRect);
+                }
+
                 const serializer = new XMLSerializer();
                 const source = serializer.serializeToString(svgClone);
                 const xmlData =
@@ -306,8 +459,12 @@ export default function ExportDialog({
                 const dataUrl = await method(container, {
                     quality: 1,
                     bgcolor: transparent ? null : effectiveBg,
-                    width: finalWidth,
-                    height: finalHeight
+                    width: outerWidth * renderScale,
+                    height: outerHeight * renderScale,
+                    style: {
+                        transform: `scale(${renderScale})`,
+                        transformOrigin: 'top left'
+                    }
                 });
                 const link = document.createElement('a');
                 link.download = `mindmap.${format}`;
@@ -316,15 +473,19 @@ export default function ExportDialog({
             } else if (format === 'pdf') {
                 const dataUrl = await domtoimage.toPng(container, {
                     bgcolor: transparent ? null : effectiveBg,
-                    width: finalWidth,
-                    height: finalHeight
+                    width: outerWidth * renderScale,
+                    height: outerHeight * renderScale,
+                    style: {
+                        transform: `scale(${renderScale})`,
+                        transformOrigin: 'top left'
+                    }
                 });
                 const pdf = new jsPDF({
-                    orientation: finalWidth > finalHeight ? 'l' : 'p',
+                    orientation: outerWidth > outerHeight ? 'l' : 'p',
                     unit: 'px',
-                    format: [finalWidth, finalHeight]
+                    format: [outerWidth, outerHeight]
                 });
-                pdf.addImage(dataUrl, 'PNG', 0, 0, finalWidth, finalHeight);
+                pdf.addImage(dataUrl, 'PNG', 0, 0, outerWidth, outerHeight);
                 pdf.save('mindmap.pdf');
             }
         } catch (e) {
@@ -351,7 +512,6 @@ export default function ExportDialog({
                 : canvasConfig?.backgroundColor || '#ffffff'
         };
 
-    // Microsoft Fluent / Clean & Simple design tokens
     const fluentStyles = {
         container: isAppDark
             ? 'bg-[#201F1E] border-[#3B3A39] text-[#F3F2F1]'
@@ -372,9 +532,6 @@ export default function ExportDialog({
         sidebar: isAppDark ? 'bg-[#201F1E]' : 'bg-white',
         sectionHeader: isAppDark ? 'text-[#A19F9D]' : 'text-[#605E5C]',
         label: isAppDark ? 'text-[#F3F2F1]' : 'text-[#323130]',
-        input: isAppDark
-            ? 'bg-[#292827] border-[#3B3A39] text-white focus:border-[#0078D4] focus:ring-[#0078D4]'
-            : 'bg-white border-[#8A8886] text-[#252423] focus:border-[#0078D4] focus:ring-[#0078D4]',
         toggleActive: isAppDark
             ? 'bg-[#0078D4] text-white border-[#0078D4]'
             : 'bg-[#0078D4] text-white border-[#0078D4]',
@@ -485,30 +642,25 @@ export default function ExportDialog({
                                         <label className={`text-xs font-medium block ${fluentStyles.label}`}>
                                             Scope
                                         </label>
-                                        <select
+                                        <CustomSelect
                                             value={size}
-                                            onChange={(e) => setSize(e.target.value)}
-                                            className={`w-full text-xs rounded px-2.5 py-1.5 outline-none border focus:ring-1 transition-all ${fluentStyles.input}`}
-                                        >
-                                            <option value="Diagram">Diagram Bounds</option>
-                                            <option value="Page">Full Canvas Page</option>
-                                        </select>
+                                            options={[
+                                                { label: 'Diagram Bounds', value: 'Diagram' },
+                                                { label: 'Full Canvas Page', value: 'Page' }
+                                            ]}
+                                            onChange={(val) => setSize(val)}
+                                        />
                                     </div>
 
                                     <div className="space-y-1">
                                         <label className={`text-xs font-medium block ${fluentStyles.label}`}>
                                             Scale
                                         </label>
-                                        <select
+                                        <CustomSelect
                                             value={zoom}
-                                            onChange={(e) => setZoom(e.target.value)}
-                                            className={`w-full text-xs rounded px-2.5 py-1.5 outline-none border focus:ring-1 transition-all ${fluentStyles.input}`}
-                                        >
-                                            <option value="50%">50%</option>
-                                            <option value="100%">100%</option>
-                                            <option value="200%">200%</option>
-                                            <option value="400%">400%</option>
-                                        </select>
+                                            options={['50%', '100%', '200%', '400%']}
+                                            onChange={(val) => setZoom(val)}
+                                        />
                                     </div>
                                 </div>
 
@@ -539,15 +691,17 @@ export default function ExportDialog({
 
                             {/* Checkboxes */}
                             <div className={`space-y-2 pt-3 border-t ${fluentStyles.divider}`}>
-                                <label className={`flex items-center gap-2.5 text-xs cursor-pointer select-none ${fluentStyles.label}`}>
-                                    <input
-                                        type="checkbox"
-                                        checked={transparent}
-                                        onChange={(e) => setTransparent(e.target.checked)}
-                                        className="rounded border-[#8A8886] text-[#0078D4] focus:ring-[#0078D4]"
-                                    />
-                                    Transparent Background
-                                </label>
+                                {(format === 'png' || format === 'svg') && (
+                                    <label className={`flex items-center gap-2.5 text-xs cursor-pointer select-none ${fluentStyles.label}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={transparent}
+                                            onChange={(e) => setTransparent(e.target.checked)}
+                                            className="rounded border-[#8A8886] text-[#0078D4] focus:ring-[#0078D4]"
+                                        />
+                                        Transparent Background
+                                    </label>
+                                )}
 
                                 <label className={`flex items-center gap-2.5 text-xs cursor-pointer select-none ${fluentStyles.label}`}>
                                     <input
@@ -582,44 +736,49 @@ export default function ExportDialog({
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="space-y-1">
                                                 <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>Width (px)</label>
-                                                <input
-                                                    type="number"
+                                                <MSNumberInput
                                                     value={exportWidth}
-                                                    onChange={(e) => setExportWidth(e.target.value)}
-                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
+                                                    onChange={(val) => setExportWidth(val)}
+                                                    unit="px"
+                                                    min={1}
+                                                    max={10000}
                                                 />
                                             </div>
                                             <div className="space-y-1">
                                                 <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>Height (px)</label>
-                                                <input
-                                                    type="number"
+                                                <MSNumberInput
                                                     value={exportHeight}
-                                                    onChange={(e) => setExportHeight(e.target.value)}
-                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
+                                                    onChange={(val) => setExportHeight(val)}
+                                                    unit="px"
+                                                    min={1}
+                                                    max={10000}
                                                 />
                                             </div>
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-2">
-                                            <div className="space-y-1">
-                                                <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>DPI Density</label>
-                                                <select
-                                                    value={dpi}
-                                                    onChange={(e) => setDpi(e.target.value)}
-                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
-                                                >
-                                                    <option value="100dpi">100 DPI</option>
-                                                    <option value="200dpi">200 DPI</option>
-                                                    <option value="300dpi">300 DPI</option>
-                                                </select>
-                                            </div>
+                                            {format !== 'svg' && (
+                                                <div className="space-y-1">
+                                                    <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>DPI Density</label>
+                                                    <CustomSelect
+                                                        value={dpi}
+                                                        options={[
+                                                            { label: '100 DPI', value: '100dpi' },
+                                                            { label: '200 DPI', value: '200dpi' },
+                                                            { label: '300 DPI', value: '300dpi' }
+                                                        ]}
+                                                        onChange={(val) => setDpi(val)}
+                                                    />
+                                                </div>
+                                            )}
                                             <div className="space-y-1">
                                                 <label className={`text-[11px] block ${fluentStyles.sectionHeader}`}>Border (px)</label>
-                                                <input
-                                                    type="number"
+                                                <MSNumberInput
                                                     value={borderWidth}
-                                                    onChange={(e) => setBorderWidth(e.target.value)}
-                                                    className={`w-full text-xs rounded px-2 py-1 outline-none border focus:ring-1 ${fluentStyles.input}`}
+                                                    onChange={(val) => setBorderWidth(val)}
+                                                    unit="px"
+                                                    min={0}
+                                                    max={100}
                                                 />
                                             </div>
                                         </div>
