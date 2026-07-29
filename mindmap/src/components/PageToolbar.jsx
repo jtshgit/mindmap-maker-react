@@ -30,7 +30,7 @@ export default function PageTabBar({
     onDuplicatePage,
     onReorderPages,
     onOpenInNewWindow,
-    githubUrl = "https://github.com"
+    githubUrl = "https://github.com/jtshgit/mindmap-maker-react"
 }) {
     // Menu visibility states
     const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
