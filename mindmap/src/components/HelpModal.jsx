@@ -96,19 +96,6 @@ export function SupportModal({ isOpen, onClose }) {
                         <p className="text-neutral-600 dark:text-neutral-300">Contact system support or send direct feedback to our technical team.</p>
                     </div>
 
-                    <a
-                        href="https://support.microsoft.com"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center justify-between p-3 rounded-lg border border-neutral-200 dark:border-[#333333] hover:bg-neutral-50 dark:hover:bg-[#2d2d2d] transition-colors"
-                    >
-                        <div>
-                            <div className="font-medium text-neutral-900 dark:text-white">Online Knowledge Base</div>
-                            <div className="text-[10px] text-neutral-400">View documentation and diagram guides.</div>
-                        </div>
-                        <ExternalLink className="w-4 h-4 text-neutral-400" />
-                    </a>
-
                     <div className="space-y-1.5">
                         <label className="font-medium text-neutral-700 dark:text-neutral-300">Submit Direct Issue / Suggestion</label>
                         <textarea

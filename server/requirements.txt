@@ -3,3 +3,4 @@ uvicorn
 groq
 PyJWT
 python-dotenv
+psycopg2-binary

@@ -3,7 +3,6 @@ import { useGesture, useDrag } from '@use-gesture/react';
 import AppHeader from './components/AppHeader';
 import domtoimage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
-import { Loader2 } from 'lucide-react';
 import PageTabBar from './components/PageToolbar';
 import ShapeLibrarySidebar from './components/ShapeLibrarySidebar';
 import Sidebar, { CollapsibleSection } from './components/Sidebar';
@@ -19,6 +18,9 @@ import ShapeNode from './components/shapes/ShapeNode';
 import ConnectionLine from './components/shapes/ConnectionLine';
 import EdgeMarkerDefs from './components/shapes/EdgeMarkerDefs';
 import EdgeEndpointHandles from './components/shapes/EdgeEndpointHandles';
+import SavedFilesButton from './components/SavedFilesButton.jsx';
+import { generateDiagramPreview } from './utils/diagramExportUtils';
+import DiagramPreviewBox from './components/DiagramPreviewBox';
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 10.0;
@@ -302,34 +304,6 @@ export default function ProfessionalMindMap() {
     };
   }, [canvasSettings, viewportRef, BOX_W, BOX_H]);
 
-  // Plain (non-viewport-dependent) bounds calculator shared by the fit
-  // logic above and the resume-preview snapshot below.
-  const getDiagramBounds = useCallback((nodesArg, edgesArg) => {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    (nodesArg || []).forEach((n) => {
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + (n.width || BOX_W));
-      maxY = Math.max(maxY, n.y + (n.height || BOX_H));
-    });
-    (edgesArg || []).forEach((e) => {
-      (e.waypoints || []).forEach((wp) => {
-        minX = Math.min(minX, wp.x);
-        minY = Math.min(minY, wp.y);
-        maxX = Math.max(maxX, wp.x);
-        maxY = Math.max(maxY, wp.y);
-      });
-    });
-    if (minX === Infinity) { minX = 0; minY = 0; maxX = 800; maxY = 600; }
-    const padding = 40;
-    return {
-      x: minX - padding,
-      y: minY - padding,
-      width: (maxX - minX) + padding * 2,
-      height: (maxY - minY) + padding * 2,
-    };
-  }, [BOX_W, BOX_H]);
-
   // Generates a real rasterized preview of the resumable diagram, the same
   // WYSIWYG way ExportDialog does: clone the live svgRef (already rendering
   // the preloaded snapshot content), scale/translate it to fit the diagram
@@ -344,52 +318,15 @@ export default function ProfessionalMindMap() {
     const timer = setTimeout(async () => {
       try {
         if (!svgRef.current) throw new Error('no svg');
-        const bounds = getDiagramBounds(resumePreviewPage.nodes || [], resumePreviewPage.edges || []);
-        const maxDim = 480;
-        const scale = Math.min(1, maxDim / Math.max(bounds.width, bounds.height, 1));
-        const pw = Math.max(1, Math.round(bounds.width * scale));
-        const ph = Math.max(1, Math.round(bounds.height * scale));
-        const bg = (resumePreviewPage.canvasConfig && resumePreviewPage.canvasConfig.backgroundColor) || '#ffffff';
-
-        const container = document.createElement('div');
-        container.style.position = 'fixed';
-        container.style.left = '0px';
-        container.style.top = '-99999px';
-        container.style.zIndex = '-9999';
-        container.style.width = `${pw}px`;
-        container.style.height = `${ph}px`;
-        container.style.background = bg;
-        document.body.appendChild(container);
-
-        const svgClone = svgRef.current.cloneNode(true);
-        svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        svgClone.querySelectorAll('foreignObject').forEach((fo) => {
-          Array.from(fo.children).forEach((child) => {
-            if (!child.hasAttribute('xmlns')) {
-              child.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-            }
-          });
+        const dataUrl = await generateDiagramPreview({
+          svgElement: svgRef.current,
+          nodes: resumePreviewPage.nodes || [],
+          edges: resumePreviewPage.edges || [],
+          canvasConfig: resumePreviewPage.canvasConfig || {},
+          isAppDark: isDarkTheme,
+          exportDark: isDarkTheme,
+          maxDimension: 480
         });
-
-        const rootG = svgClone.querySelector('g');
-        if (rootG) {
-          rootG.setAttribute('transform', `scale(${scale}) translate(${-bounds.x}, ${-bounds.y})`);
-          const shadowEl = svgClone.querySelector('[data-role="canvas-shadow"]');
-          const bgElInner = svgClone.querySelector('[data-role="canvas-bg"]');
-          const gridEl = svgClone.querySelector('[data-role="canvas-grid"]');
-          if (shadowEl) shadowEl.style.display = 'none';
-          if (bgElInner) bgElInner.style.display = 'none';
-          if (gridEl) gridEl.style.display = 'none';
-        }
-
-        svgClone.style.width = '100%';
-        svgClone.style.height = '100%';
-        svgClone.setAttribute('viewBox', `0 0 ${pw} ${ph}`);
-        container.appendChild(svgClone);
-
-        await new Promise((r) => setTimeout(r, 60));
-        const dataUrl = await domtoimage.toPng(container, { quality: 1, bgcolor: bg, width: pw, height: ph });
-        document.body.removeChild(container);
 
         if (!cancelled) {
           setResumePreviewSrc(dataUrl);
@@ -404,7 +341,7 @@ export default function ProfessionalMindMap() {
     }, 120);
 
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [showResumeModal, resumePreviewPage, getDiagramBounds, svgRef]);
+  }, [showResumeModal, resumePreviewPage, isDarkTheme, svgRef]);
 
   // On first mount, fit the initial page/diagram into view (center-upper)
   // instead of relying on a hardcoded transform. Runs after layout so the
@@ -1028,6 +965,34 @@ export default function ProfessionalMindMap() {
         }
       }
 
+      // ARROW KEYS: Nudge selected shapes by 1 unit (or 10 units with Shift)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        const targetNodeIds = multiSelected.length > 0
+          ? multiSelected
+          : (selected?.type === 'node' ? [selected.id] : []);
+
+        if (targetNodeIds.length > 0) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          let dx = 0;
+          let dy = 0;
+          if (e.key === 'ArrowUp') dy = -step;
+          if (e.key === 'ArrowDown') dy = step;
+          if (e.key === 'ArrowLeft') dx = -step;
+          if (e.key === 'ArrowRight') dx = step;
+
+          performAction(() => {
+            setNodes(prev => prev.map(n => {
+              if (targetNodeIds.includes(n.id) && !n.locked) {
+                return { ...n, x: n.x + dx, y: n.y + dy };
+              }
+              return n;
+            }));
+          });
+          return;
+        }
+      }
+
       // UNDO (Ctrl+Z / Cmd+Z)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       // REDO (Ctrl+Y / Cmd+Y / Cmd+Shift+Z)
@@ -1205,6 +1170,48 @@ export default function ProfessionalMindMap() {
       return combined;
     });
   }, [nodes, edges, canvasConfig, canvasSettings, transform, past, future, activePageId, loadPageState]);
+
+  const getCurrentDiagramDataForSave = useCallback(() => {
+    const currentPageSnapshot = {
+      nodes: JSON.parse(JSON.stringify(nodes)),
+      edges: JSON.parse(JSON.stringify(edges)),
+      canvasConfig: { ...canvasConfig },
+      canvasSettings: { ...canvasSettings },
+      transform: { ...transform },
+    };
+    const allPages = pages.map(p => p.id === activePageId ? { ...p, ...currentPageSnapshot } : p);
+    return {
+      pages: allPages.map(p => ({
+        id: p.id,
+        name: p.name,
+        nodes: p.nodes,
+        edges: p.edges,
+        canvasConfig: p.canvasConfig,
+        canvasSettings: p.canvasSettings,
+        transform: p.transform,
+      })),
+      activePageId,
+    };
+  }, [pages, activePageId, nodes, edges, canvasConfig, canvasSettings, transform]);
+
+  const handleLoadServerFile = useCallback((data) => {
+    if (!data || !Array.isArray(data.pages) || data.pages.length === 0) return;
+    const restoredPages = data.pages.map(p => ({
+      ...makeDefaultPage(p.id, p.name),
+      ...p,
+      past: [],
+      future: [],
+    }));
+    const targetId = data.activePageId && restoredPages.some(p => p.id === data.activePageId)
+      ? data.activePageId
+      : restoredPages[0].id;
+    const targetPage = restoredPages.find(p => p.id === targetId);
+    setPages(restoredPages);
+    setActivePageId(targetId);
+    loadPageState(targetPage);
+    pageCounterRef.current = restoredPages.length;
+  }, [loadPageState]);
+
 
   const handleImport = (event) => {
     const file = event.target.files[0];
@@ -2472,26 +2479,17 @@ export default function ProfessionalMindMap() {
               </div>
 
               {/* Canvas Preview Box */}
-              <div
-                className="mx-5 rounded border border-[#E1DFDD] dark:border-[#3B3A39] overflow-hidden flex items-center justify-center h-[190px] relative bg-[#FAF9F8] dark:bg-[#1B1A19]"
-                style={{ backgroundColor: previewBg || undefined }}
-              >
-                {resumePreviewLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-[#605E5C] dark:text-[#A19F9D] bg-white/80 dark:bg-[#201F1E]/80">
-                    <Loader2 className="w-4 h-4 animate-spin text-[#0078D4]" />
-                    Rendering preview...
-                  </div>
-                )}
-                {!resumePreviewLoading && resumePreviewSrc && (
-                  <img
-                    src={resumePreviewSrc}
-                    alt="Saved diagram preview"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                )}
-                {!resumePreviewLoading && !resumePreviewSrc && (
-                  <span className="text-xs text-[#8A8886] dark:text-[#A19F9D]">Preview unavailable</span>
-                )}
+              <div className="mx-5">
+                <DiagramPreviewBox
+                  previewSrc={resumePreviewSrc}
+                  loading={resumePreviewLoading}
+                  isDark={isDarkTheme}
+                  canvasBg={previewBg}
+                  showInfoBar={false}
+                  showFooterBar={false}
+                  minHeight={190}
+                  maxHeight={190}
+                />
               </div>
 
               {/* Footer Controls */}
@@ -2557,6 +2555,10 @@ export default function ProfessionalMindMap() {
         onImportImage={(dataUrl, naturalW, naturalH) => {
           handleAddImageNode(dataUrl, naturalW, naturalH);
         }}
+        getCurrentDiagramData={getCurrentDiagramDataForSave}
+        onLoadFile={handleLoadServerFile}
+        onNewProject={handleStartFresh}
+        svgRef={svgRef}
       />
       {/* Fixed "Data Editor" launcher: paste a node/edge text spec, generate a full diagram */}
 
@@ -2976,6 +2978,10 @@ export default function ProfessionalMindMap() {
         onRenamePage={handleRenamePage}
         onDuplicatePage={handleDuplicatePage}
         onReorderPages={(newPages) => setPages(newPages)}
+      />
+      <SavedFilesButton
+        getCurrentDiagramData={getCurrentDiagramDataForSave}
+        onLoadFile={handleLoadServerFile}
       />
     </div>
   );

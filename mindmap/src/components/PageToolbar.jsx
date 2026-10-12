@@ -489,6 +489,16 @@ export default function PageTabBar({
             {/* ── RIGHT SECTION: GITHUB LINK ── */}
             <div className="flex items-center gap-2 shrink-0">
                 <a
+                    href={"https://unibrik.com/about"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-1.5 px-2 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors rounded hover:bg-neutral-200/70 dark:hover:bg-neutral-800 flex items-center justify-center"
+                    title="View GitHub Repository"
+                >
+                    About
+                </a>
+                <div className="border-l h-4 border-neutral-400 dark:border-neutral-600"></div>
+                <a
                     href={githubUrl}
                     target="_blank"
                     rel="noopener noreferrer"

@@ -8,11 +8,15 @@ import {
     Download,
     Loader2,
     Settings2,
-    Eye,
     Sun,
     Moon,
     FileCheck
 } from 'lucide-react';
+import {
+    getDiagramBounds,
+    buildExportContainer as createExportContainer
+} from '../utils/diagramExportUtils';
+import DiagramPreviewBox from './DiagramPreviewBox';
 
 /* -------------------------------------------------------------------------- */
 /*                            Custom Styled Inputs                            */
@@ -96,26 +100,6 @@ function MSNumberInput({ value, onChange, unit = '', min = -500, max = 5000, ste
 }
 
 /* -------------------------------------------------------------------------- */
-/*                            Helper Functions                                */
-/* -------------------------------------------------------------------------- */
-
-const isBlackColor = (c) =>
-    c === '#000' ||
-    c === '#000000' ||
-    c === '#000000ff' ||
-    c === 'black' ||
-    c === 'rgb(0, 0, 0)' ||
-    c === 'rgba(0, 0, 0, 1)';
-
-const isWhiteColor = (c) =>
-    c === '#fff' ||
-    c === '#ffffff' ||
-    c === '#ffffffff' ||
-    c === 'white' ||
-    c === 'rgb(255, 255, 255)' ||
-    c === 'rgba(255, 255, 255, 1)';
-
-/* -------------------------------------------------------------------------- */
 /*                            Export Dialog Component                         */
 /* -------------------------------------------------------------------------- */
 
@@ -163,6 +147,9 @@ export default function ExportDialog({
     }, [format]);
 
     const getBounds = useCallback(() => {
+        if (size === 'Diagram') {
+            return getDiagramBounds(nodes, edges);
+        }
         const pageW =
             canvasSettings?.orientation === 'landscape'
                 ? canvasSettings?.width
@@ -172,46 +159,7 @@ export default function ExportDialog({
                 ? canvasSettings?.height
                 : canvasSettings?.width;
 
-        let bounds = { x: 0, y: 0, width: pageW || 800, height: pageH || 600 };
-
-        if (size === 'Diagram') {
-            let minX = Infinity,
-                minY = Infinity,
-                maxX = -Infinity,
-                maxY = -Infinity;
-
-            nodes?.forEach((n) => {
-                minX = Math.min(minX, n.x);
-                minY = Math.min(minY, n.y);
-                maxX = Math.max(maxX, n.x + (n.width || 120));
-                maxY = Math.max(maxY, n.y + (n.height || 40));
-            });
-
-            edges?.forEach((e) => {
-                e.waypoints?.forEach((wp) => {
-                    minX = Math.min(minX, wp.x);
-                    minY = Math.min(minY, wp.y);
-                    maxX = Math.max(maxX, wp.x);
-                    maxY = Math.max(maxY, wp.y);
-                });
-            });
-
-            if (minX === Infinity) {
-                minX = 0;
-                minY = 0;
-                maxX = 800;
-                maxY = 600;
-            }
-
-            const padding = 40;
-            bounds = {
-                x: minX - padding,
-                y: minY - padding,
-                width: maxX - minX + padding * 2,
-                height: maxY - minY + padding * 2
-            };
-        }
-        return bounds;
+        return { x: 0, y: 0, width: pageW || 800, height: pageH || 600 };
     }, [size, nodes, edges, canvasSettings]);
 
     useEffect(() => {
@@ -224,94 +172,21 @@ export default function ExportDialog({
 
     const buildExportContainer = useCallback(
         (finalWidth, finalHeight, zoomFactor, bounds, borderPx = 0) => {
-            const effectiveBg = exportDark
-                ? '#000000'
-                : canvasConfig?.backgroundColor || '#ffffff';
-
-            const outerWidth = finalWidth + borderPx * 2;
-            const outerHeight = finalHeight + borderPx * 2;
-
-            const container = document.createElement('div');
-            container.style.position = 'fixed';
-            container.style.left = '0px';
-            container.style.top = '-99999px';
-            container.style.zIndex = '-9999';
-            container.style.boxSizing = 'border-box';
-            container.style.width = `${outerWidth}px`;
-            container.style.height = `${outerHeight}px`;
-            container.style.background = transparent ? 'transparent' : effectiveBg;
-            if (borderPx > 0) {
-                container.style.border = `${borderPx}px solid ${exportDark ? '#ffffff' : '#000000'}`;
-            }
-            document.body.appendChild(container);
-
-            const svgClone = svgRef.current.cloneNode(true);
-            svgClone.setAttribute('xmlns', 'http://www.w3.org/1999/svg');
-
-            svgClone.querySelectorAll('foreignObject').forEach((fo) => {
-                Array.from(fo.children).forEach((child) => {
-                    if (!child.hasAttribute('xmlns')) {
-                        child.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-                    }
-                });
+            return createExportContainer({
+                svgElement: svgRef.current,
+                finalWidth,
+                finalHeight,
+                zoomFactor,
+                bounds,
+                borderPx,
+                exportDark,
+                isAppDark,
+                canvasConfig,
+                transparent,
+                shadow,
+                grid,
+                size
             });
-
-            const rootG = svgClone.querySelector('g');
-            if (rootG) {
-                rootG.setAttribute(
-                    'transform',
-                    `scale(${zoomFactor}) translate(${-bounds.x}, ${-bounds.y})`
-                );
-
-                const shadowEl = svgClone.querySelector('[data-role="canvas-shadow"]');
-                const bgEl = svgClone.querySelector('[data-role="canvas-bg"]');
-                const gridEl = svgClone.querySelector('[data-role="canvas-grid"]');
-
-                if (bgEl) bgEl.setAttribute('fill', effectiveBg);
-                if (!shadow && shadowEl) shadowEl.style.display = 'none';
-                if (!grid && gridEl) gridEl.style.display = 'none';
-
-                if (size === 'Diagram') {
-                    if (shadowEl) shadowEl.style.display = 'none';
-                    if (bgEl) bgEl.style.display = 'none';
-                    if (gridEl) gridEl.style.display = 'none';
-                }
-
-                if (isAppDark && !exportDark) {
-                    const shapesGroup =
-                        svgClone.querySelector('#mindmap-bounds') || rootG;
-                    shapesGroup.querySelectorAll('[stroke]').forEach((el) => {
-                        const c = (el.getAttribute('stroke') || '').trim().toLowerCase();
-                        if (isWhiteColor(c)) {
-                            el.setAttribute('stroke', '#000000');
-                        }
-                    });
-                    shapesGroup.querySelectorAll('[fill]').forEach((el) => {
-                        const c = (el.getAttribute('fill') || '').trim().toLowerCase();
-                        if (isBlackColor(c)) {
-                            el.setAttribute('fill', '#ffffff');
-                        }
-                    });
-                    shapesGroup.querySelectorAll('[style]').forEach((el) => {
-                        const c = (el.style.color || '').trim().toLowerCase();
-                        if (isWhiteColor(c)) {
-                            el.style.color = '#000000';
-                        }
-                    });
-                }
-            }
-
-            svgClone.setAttribute('width', String(finalWidth));
-            svgClone.setAttribute('height', String(finalHeight));
-            svgClone.setAttribute('viewBox', `0 0 ${finalWidth} ${finalHeight}`);
-            svgClone.style.position = 'absolute';
-            svgClone.style.left = `${borderPx}px`;
-            svgClone.style.top = `${borderPx}px`;
-            svgClone.style.width = `${finalWidth}px`;
-            svgClone.style.height = `${finalHeight}px`;
-            container.appendChild(svgClone);
-
-            return { container, svgClone, effectiveBg, outerWidth, outerHeight };
         },
         [canvasConfig, transparent, shadow, grid, size, exportDark, isAppDark, svgRef]
     );
@@ -329,7 +204,7 @@ export default function ExportDialog({
                 const rawW = Math.max(1, Math.round(bounds.width * zoomFactor));
                 const rawH = Math.max(1, Math.round(bounds.height * zoomFactor));
                 const maxDim = 450;
-                const scaleDown = Math.min(1, maxDim / Math.max(rawW, rawH));
+                const scaleDown = Math.min(1, maxDim / Math.max(rawW, rawH, 1));
                 const pw = Math.max(1, Math.round(rawW * scaleDown));
                 const ph = Math.max(1, Math.round(rawH * scaleDown));
 
@@ -340,18 +215,23 @@ export default function ExportDialog({
                     bounds
                 );
 
-                await new Promise((r) => setTimeout(r, 60));
-                const dataUrl = await domtoimage.toPng(container, {
-                    quality: 1,
-                    bgcolor: transparent ? null : effectiveBg,
-                    width: pw,
-                    height: ph
-                });
+                try {
+                    await new Promise((r) => setTimeout(r, 60));
+                    const dataUrl = await domtoimage.toPng(container, {
+                        quality: 1,
+                        bgcolor: transparent ? null : effectiveBg,
+                        width: pw,
+                        height: ph
+                    });
 
-                document.body.removeChild(container);
-                if (!cancelled) {
-                    setPreviewSrc(dataUrl);
-                    setIsPreviewLoading(false);
+                    if (!cancelled) {
+                        setPreviewSrc(dataUrl);
+                        setIsPreviewLoading(false);
+                    }
+                } finally {
+                    if (container && container.parentNode) {
+                        container.parentNode.removeChild(container);
+                    }
                 }
             } catch (e) {
                 if (!cancelled) {
@@ -497,21 +377,6 @@ export default function ExportDialog({
         }
     };
 
-    const previewBgStyle = transparent
-        ? {
-            backgroundImage: isAppDark
-                ? 'linear-gradient(45deg, #282828 25%, transparent 25%), linear-gradient(-45deg, #282828 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #282828 75%), linear-gradient(-45deg, transparent 75%, #282828 75%)'
-                : 'linear-gradient(45deg, #E1DFDD 25%, transparent 25%), linear-gradient(-45deg, #E1DFDD 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #E1DFDD 75%), linear-gradient(-45deg, transparent 75%, #E1DFDD 75%)',
-            backgroundSize: '16px 16px',
-            backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
-            backgroundColor: isAppDark ? '#1B1A19' : '#F3F2F1'
-        }
-        : {
-            backgroundColor: exportDark
-                ? '#000000'
-                : canvasConfig?.backgroundColor || '#ffffff'
-        };
-
     const fluentStyles = {
         container: isAppDark
             ? 'bg-[#201F1E] border-[#3B3A39] text-[#F3F2F1]'
@@ -588,44 +453,18 @@ export default function ExportDialog({
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden">
                     {/* Left: Preview Panel */}
                     <div className={`md:col-span-7 p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r min-h-[280px] ${fluentStyles.previewContainer}`}>
-                        <div className="flex items-center justify-between text-xs text-[#605E5C] dark:text-[#A19F9D] mb-2.5">
-                            <span className="flex items-center gap-1.5 font-medium">
-                                <Eye className="w-3.5 h-3.5 text-[#0078D4]" /> Preview
-                            </span>
-                            <span className="text-[11px] font-mono">
-                                {exportWidth} × {exportHeight} px
-                            </span>
-                        </div>
-
-                        {/* Preview Display Container */}
-                        <div
-                            className={`flex-1 rounded border overflow-hidden flex items-center justify-center relative p-4 transition-colors min-h-[200px] ${fluentStyles.previewBorder}`}
-                            style={previewBgStyle}
-                        >
-                            {isPreviewLoading && (
-                                <div className={`absolute inset-0 flex items-center justify-center gap-2 text-xs z-10 ${fluentStyles.previewLoaderBg}`}>
-                                    <Loader2 className="w-4 h-4 animate-spin text-[#0078D4]" />
-                                    Updating preview...
-                                </div>
-                            )}
-
-                            {previewSrc ? (
-                                <img
-                                    src={previewSrc}
-                                    alt="Export preview"
-                                    className="max-w-full max-h-[270px] object-contain transition-all"
-                                />
-                            ) : (
-                                <span className="text-xs text-[#8A8886] flex items-center gap-2">
-                                    <Loader2 className="w-4 h-4 animate-spin" /> Generating preview...
-                                </span>
-                            )}
-                        </div>
-
-                        <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#605E5C] dark:text-[#A19F9D]">
-                            <span>WYSIWYG Live Render</span>
-                            <span>Zoom: {zoom}</span>
-                        </div>
+                        <DiagramPreviewBox
+                            previewSrc={previewSrc}
+                            loading={isPreviewLoading}
+                            width={exportWidth}
+                            height={exportHeight}
+                            zoom={zoom}
+                            isDark={exportDark}
+                            transparent={transparent}
+                            canvasBg={canvasConfig?.backgroundColor}
+                            minHeight={220}
+                            maxHeight={290}
+                        />
                     </div>
 
                     {/* Right: Options & Controls Panel */}

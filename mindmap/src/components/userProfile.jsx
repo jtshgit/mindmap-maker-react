@@ -5,26 +5,30 @@ import { User, Settings, ExternalLink } from 'lucide-react';
 const API_BASE_URL = process.env.REACT_APP_API_URL;
 const ACCOUNT_APP_URL = process.env.REACT_APP_ACCOUNT_URL;
 
-export default function UserProfile() {
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+export default function UserProfile({ user: propUser, loading: propLoading }) {
+    const [internalUser, setInternalUser] = useState(null);
+    const [internalLoading, setInternalLoading] = useState(true);
     const [openProf, setOpenProf] = useState(false);
     const dropdownRef = useRef(null);
 
-    // 1. Fetch user status on mount
+    const user = propUser !== undefined ? propUser : internalUser;
+    const loading = propLoading !== undefined ? propLoading : internalLoading;
+
+    // 1. Fetch user status on mount only if not passed from parent
     useEffect(() => {
+        if (propUser !== undefined) return;
         axios
             .get(`${API_BASE_URL}/api/me`, { withCredentials: true })
             .then((res) => {
-                setUser(res.data);
+                setInternalUser(res.data);
             })
             .catch(() => {
-                setUser({ success: false });
+                setInternalUser({ success: false });
             })
             .finally(() => {
-                setLoading(false);
+                setInternalLoading(false);
             });
-    }, []);
+    }, [propUser]);
 
     // 2. Handle click outside to close dropdown
     useEffect(() => {

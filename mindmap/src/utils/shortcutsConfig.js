@@ -2,7 +2,6 @@
 
 export const SHORTCUTS = [
     // --- File & Editing ---
-    { id: 'addPage', name: 'Add Page', displayKey: '⌘ N', ctrlOrCmd: true, key: 'n' },
     { id: 'openFile', name: 'Open File', displayKey: '⌘ O', ctrlOrCmd: true, key: 'o' },
     { id: 'saveFile', name: 'Save File', displayKey: '⌘ S', ctrlOrCmd: true, key: 's' },
     { id: 'undo', name: 'Undo', displayKey: '⌘ Z', ctrlOrCmd: true, key: 'z' },
